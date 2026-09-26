@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from './api';
 import { Navbar } from './components/Navbar';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { VideoPlayerModal } from './components/VideoPlayerModal';
@@ -67,9 +68,9 @@ export default function App() {
   const loadPublicData = useCallback(async () => {
     try {
       const [movRes, serRes, spRes] = await Promise.all([
-        fetch('/api/movies'),
-        fetch('/api/series'),
-        fetch('/api/monetization/placements?placement=HOME_BETWEEN_RAILS'),
+        apiFetch('/api/movies'),
+        apiFetch('/api/series'),
+        apiFetch('/api/monetization/placements?placement=HOME_BETWEEN_RAILS'),
       ]);
 
       if (movRes.ok) {
@@ -96,9 +97,9 @@ export default function App() {
     if (!token) return;
     try {
       const [meRes, wpRes, wlRes] = await Promise.all([
-        fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/user/watch-progress', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/user/watchlist', { headers: { Authorization: `Bearer ${token}` } }),
+        apiFetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
+        apiFetch('/api/user/watch-progress', { headers: { Authorization: `Bearer ${token}` } }),
+        apiFetch('/api/user/watchlist', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
       if (meRes.ok) {
@@ -193,7 +194,7 @@ export default function App() {
     if (exists) {
       // Remove
       setWatchlist(prev => prev.filter(w => (isMovie ? w.movieId !== item.id : w.seriesId !== item.id)));
-      await fetch('/api/user/watchlist', {
+      await apiFetch('/api/user/watchlist', {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -214,7 +215,7 @@ export default function App() {
       };
       setWatchlist(prev => [...prev, tempItem]);
 
-      await fetch('/api/user/watchlist', {
+      await apiFetch('/api/user/watchlist', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -229,7 +230,7 @@ export default function App() {
     if (!token) return;
 
     try {
-      await fetch('/api/user/watch-progress', {
+      await apiFetch('/api/user/watch-progress', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -251,7 +252,7 @@ export default function App() {
 
   const handleTrackSponsorClick = async (campaignId: string, type: string) => {
     try {
-      await fetch('/api/monetization/track-click', {
+      await apiFetch('/api/monetization/track-click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ campaignId, type }),
@@ -262,7 +263,7 @@ export default function App() {
   const handleUpdatePreferences = async (pref: any) => {
     if (!token) return;
     try {
-      const res = await fetch('/api/user/preferences', {
+      const res = await apiFetch('/api/user/preferences', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

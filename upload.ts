@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { authenticateUser, requireRole } from './auth'; // Assuming auth is in backend/src/routes
-import { r2Service } from '../services/cloudflareR2';
+import { r2Service } from './cloudflareR2';
 
 const router = Router();
 

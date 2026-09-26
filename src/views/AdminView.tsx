@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../api';
 import {
   Shield, Film, Tv, DollarSign, BarChart3, Users, Clock,
   Plus, Check, X, AlertTriangle, Eye, ShieldCheck, Upload,
@@ -38,7 +39,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   const fetchAdminMetrics = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/metrics', {
+      const res = await apiFetch('/api/admin/metrics', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -55,7 +56,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
 
   const fetchRightsData = async () => {
     try {
-      const res = await fetch('/api/admin/rights', {
+      const res = await apiFetch('/api/admin/rights', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -67,7 +68,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
 
   const fetchSponsorsData = async () => {
     try {
-      const res = await fetch('/api/monetization/sponsors', {
+      const res = await apiFetch('/api/monetization/sponsors', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -89,7 +90,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   const handlePublishMovie = async (movieId: string, newState: string) => {
     setStatusMsg('');
     try {
-      const res = await fetch(`/api/movies/${movieId}/state`, {
+      const res = await apiFetch(`/api/movies/${movieId}/state`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -112,7 +113,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   const handleCreateMovie = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/movies', {
+      const res = await apiFetch('/api/movies', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -143,7 +144,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   const handleCreateSponsor = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/monetization/sponsors', {
+      const res = await apiFetch('/api/monetization/sponsors', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

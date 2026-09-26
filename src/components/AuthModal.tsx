@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from '../api';
 import { X, Sparkles, Lock, Mail, User as UserIcon, Shield } from 'lucide-react';
 import { ZiraLogo } from './ZiraLogo';
 
@@ -26,7 +27,7 @@ export function AuthModal({ onClose, onLoginSuccess }: AuthModalProps) {
         ? { email, password, displayName }
         : { email, password };
 
-      const res = await fetch(endpoint, {
+      const res = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -52,7 +53,7 @@ export function AuthModal({ onClose, onLoginSuccess }: AuthModalProps) {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/demo-login', {
+      const res = await apiFetch('/api/auth/demo-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role }),

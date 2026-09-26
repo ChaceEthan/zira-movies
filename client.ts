@@ -3,7 +3,8 @@
  * Uses VITE_API_URL for the base URL.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const API_ORIGIN = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+const API_BASE_URL = `${API_ORIGIN}/api`;
 
 interface ApiResponse<T> {
   data: T | null;

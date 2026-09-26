@@ -12,11 +12,11 @@ frontend/dist/
 
 # Local Environment Variables
 .env
-.env.local
-.env.production
-.env.*.local
+.env.*
+!.env.example
 backend/.env
 frontend/.env.local
+.vercel
 
 # Misc
 coverage/

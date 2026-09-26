@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { contentService } from '../services/contentService'; // Relative path to services
+import { contentService } from './contentService';
 
 const router = Router();
 

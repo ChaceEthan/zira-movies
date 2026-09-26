@@ -3,9 +3,13 @@
   "private": true,
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:backend": "tsx watch server.ts",
     "build": "vite build",
     "build:frontend": "vite build",
+    "build:backend": "esbuild server.ts --bundle --platform=node --target=node20 --format=cjs --packages=external --outfile=backend-dist/server.cjs",
     "preview": "vite preview --host 0.0.0.0",
+    "start": "node backend-dist/server.cjs",
+    "start:backend": "node backend-dist/server.cjs",
     "typecheck": "tsc --noEmit",
     "prisma:validate": "prisma validate --schema prisma/schema.prisma",
     "prisma:generate": "prisma generate --schema prisma/schema.prisma"
@@ -33,6 +37,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "esbuild": "^0.28.2",
     "prisma": "^6.15.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

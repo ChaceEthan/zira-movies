@@ -17,6 +17,27 @@ router.post('/presigned-url', authenticateUser, requireRole(['EDITOR', 'ADMIN', 
     return res.status(503).json({ error: 'Cloudflare R2 service is not configured on the server.' });
   }
 
+  if (typeof filename !== 'string' || filename.length > 120 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(filename)) {
+    return res.status(400).json({ error: 'filename must contain only letters, numbers, dots, underscores, or hyphens.' });
+  }
+  if (typeof contentId !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(contentId)) {
+    return res.status(400).json({ error: 'Invalid contentId.' });
+  }
+  if (!Number.isInteger(expiresInSeconds) || expiresInSeconds < 60 || expiresInSeconds > 3600) {
+    return res.status(400).json({ error: 'expiresInSeconds must be between 60 and 3600.' });
+  }
+
+  const allowedTypes: Record<string, string[]> = {
+    movie_poster: ['image/jpeg', 'image/png', 'image/webp'],
+    movie_backdrop: ['image/jpeg', 'image/png', 'image/webp'],
+    movie_video: ['video/mp4', 'application/vnd.apple.mpegurl'],
+    series_poster: ['image/jpeg', 'image/png', 'image/webp'],
+    series_backdrop: ['image/jpeg', 'image/png', 'image/webp'],
+  };
+  if (typeof contentType !== 'string' || !allowedTypes[contentTypeCategory]?.includes(contentType)) {
+    return res.status(400).json({ error: 'Unsupported content type for this upload category.' });
+  }
+
   let objectKey: string;
   try {
     switch (contentTypeCategory) {
@@ -40,12 +61,12 @@ router.post('/presigned-url', authenticateUser, requireRole(['EDITOR', 'ADMIN', 
         return res.status(400).json({ error: 'Invalid contentTypeCategory.' });
     }
 
-    const presignedUrl = await r2Service.createPresignedUploadUrl(objectKey, contentType, expiresInSeconds);
+    const presignedUrl = await r2Service.createPresignedUploadUrl(objectKey, contentType, Number(expiresInSeconds));
     const publicUrl = r2Service.getPublicUrl(objectKey);
     return res.json({ presignedUrl, publicUrl, objectKey });
   } catch (error: any) {
     console.error('Error generating pre-signed URL:', error);
-    return res.status(500).json({ error: 'Failed to generate pre-signed URL.', details: error.message });
+    return res.status(500).json({ error: 'Failed to generate pre-signed URL.' });
   }
 });
 

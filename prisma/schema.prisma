@@ -52,6 +52,12 @@ enum CampaignPaymentStatus {
   PAID
 }
 
+enum AffiliateConversionStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
 enum QualityRendition {
   AUTO
   P1080
@@ -393,6 +399,9 @@ model SponsorCampaign {
   active                Boolean               @default(true)
   budgetNote            String?
   internalPaymentStatus CampaignPaymentStatus @default(UNPAID)
+  agreedPrice           Decimal               @default(0) @db.Decimal(12, 2)
+  paidAmount            Decimal               @default(0) @db.Decimal(12, 2)
+  currency              String                @default("USD")
   placement             AdPlacementType       @default(HOME_BETWEEN_RAILS)
   destinationUrl        String
   impressionLimit       Int?
@@ -455,6 +464,8 @@ model AffiliateCampaign {
   active         Boolean          @default(true)
   partner        AffiliatePartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   clicks         AffiliateClick[]
+  impressions    AffiliateImpression[]
+  conversions    AffiliateConversion[]
 }
 
 model AffiliateClick {
@@ -462,6 +473,46 @@ model AffiliateClick {
   campaignId String
   createdAt  DateTime          @default(now())
   campaign   AffiliateCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+model AffiliateImpression {
+  id         String            @id @default(uuid())
+  campaignId String
+  createdAt  DateTime          @default(now())
+  campaign   AffiliateCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, createdAt])
+}
+
+model AffiliateConversion {
+  id                  String                    @id @default(uuid())
+  campaignId          String
+  externalReference   String?                   @unique
+  status              AffiliateConversionStatus @default(PENDING)
+  commissionRevenue   Decimal                   @default(0) @db.Decimal(12, 2)
+  currency            String                    @default("USD")
+  verifiedAt          DateTime?
+  createdAt           DateTime                  @default(now())
+  campaign            AffiliateCampaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, status])
+}
+
+model MonetagPlacementSetting {
+  placement AdPlacementType @id
+  enabled   Boolean         @default(false)
+  updatedAt DateTime        @updatedAt
+}
+
+model MonetagRevenueRecord {
+  id         String   @id @default(uuid())
+  reportDate DateTime
+  amount     Decimal  @db.Decimal(12, 2)
+  currency   String   @default("USD")
+  source     String
+  recordedAt DateTime @default(now())
+
+  @@index([reportDate])
 }
 
 model SponsoredPlacement {

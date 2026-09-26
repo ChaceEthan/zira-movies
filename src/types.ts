@@ -203,7 +203,7 @@ export interface AdminMetrics {
   totalSeries: number;
   totalEpisodes: number;
   totalViews: number;
-  totalWatchHours: number;
+  totalWatchHours: number | null;
   totalSponsorImpressions: number;
   totalSponsorClicks: number;
   totalAffiliateClicks: number;

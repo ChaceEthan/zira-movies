@@ -40,6 +40,7 @@ export function VideoPlayerModal({
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [showSettings, setShowSettings] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [playerError, setPlayerError] = useState('');
 
   const hideControlsTimer = useRef<any>(null);
 
@@ -51,14 +52,23 @@ export function VideoPlayerModal({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    setPlayerError('');
 
     if (hlsSrc && Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          setPlayerError('This video is currently unavailable. Please try again later.');
+          hls.destroy();
+        }
+      });
       hls.loadSource(hlsSrc);
       hls.attachMedia(video);
       return () => hls.destroy();
     } else if (videoSrc) {
       video.src = videoSrc;
+    } else {
+      setPlayerError('No playable video is available for this title.');
     }
   }, [videoSrc, hlsSrc]);
 
@@ -93,9 +103,8 @@ export function VideoPlayerModal({
       if (isPlaying) {
         videoRef.current.pause();
       } else {
-        videoRef.current.play();
+        void videoRef.current.play().catch(() => setPlayerError('Playback could not start. Please try again.'));
       }
-      setIsPlaying(!isPlaying);
     }
   };
 
@@ -104,6 +113,16 @@ export function VideoPlayerModal({
       videoRef.current.muted = !isMuted;
       setIsMuted(!isMuted);
     }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextVolume = Number(e.target.value);
+    if (videoRef.current) {
+      videoRef.current.volume = nextVolume;
+      videoRef.current.muted = nextVolume === 0;
+    }
+    setVolume(nextVolume);
+    setIsMuted(nextVolume === 0);
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -151,8 +170,12 @@ export function VideoPlayerModal({
         ref={videoRef}
         autoPlay
         playsInline
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
         onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
         onLoadedMetadata={() => videoRef.current && setDuration(videoRef.current.duration)}
+        onCanPlay={() => setPlayerError('')}
+        onError={() => setPlayerError('This video is currently unavailable. Please try again later.')}
         onEnded={() => {
           setIsPlaying(false);
           if (onNextEpisode) onNextEpisode();
@@ -160,6 +183,14 @@ export function VideoPlayerModal({
         className="absolute inset-0 w-full h-full object-contain bg-black cursor-pointer"
         onClick={togglePlay}
       />
+
+      {playerError && (
+        <div role="alert" className="absolute inset-x-4 top-1/2 z-20 mx-auto max-w-md -translate-y-1/2 rounded-lg border border-neutral-700 bg-neutral-950/95 p-5 text-center shadow-2xl">
+          <ShieldAlert className="mx-auto mb-3 h-6 w-6 text-amber-400" />
+          <p className="text-sm font-semibold text-white">Playback unavailable</p>
+          <p className="mt-1 text-xs text-neutral-300">{playerError}</p>
+        </div>
+      )}
 
       {/* Top Bar Overlay */}
       <div className={`relative z-20 p-4 lg:p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
@@ -311,6 +342,16 @@ export function VideoPlayerModal({
             <button onClick={toggleMute} className="text-white hover:text-neutral-300 transition-colors">
               {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
             </button>
+            <input
+              aria-label="Volume"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={isMuted ? 0 : volume}
+              onChange={handleVolumeChange}
+              className="w-20 accent-red-600"
+            />
 
             {onNextEpisode && (
               <button

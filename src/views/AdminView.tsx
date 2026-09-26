@@ -3,7 +3,7 @@ import { apiFetch } from '../api';
 import {
   Shield, Film, Tv, DollarSign, BarChart3, Users, Clock,
   Plus, Check, X, AlertTriangle, Eye, ShieldCheck, Upload,
-  Edit, Trash2, Tag, RefreshCw, FileText
+  Edit, Trash2, Tag, RefreshCw, FileText, ExternalLink, Sparkles
 } from 'lucide-react';
 import { Movie, Series, AdminMetrics, ContentRights, Sponsor, SponsorCampaign, AdminAuditLog } from '../types';
 
@@ -15,12 +15,17 @@ interface AdminViewProps {
 }
 
 export function AdminView({ token, movies, series, onRefreshData }: AdminViewProps) {
-  const [activeTab, setActiveTab] = useState<'metrics' | 'movies' | 'series' | 'rights' | 'sponsors' | 'audit'>('metrics');
+  const [activeTab, setActiveTab] = useState<'metrics' | 'movies' | 'series' | 'rights' | 'sponsors' | 'monetag' | 'affiliate' | 'analytics' | 'audit'>('metrics');
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [rightsList, setRightsList] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [campaigns, setCampaigns] = useState<SponsorCampaign[]>([]);
+  const [monetagPlacements, setMonetagPlacements] = useState<any[]>([]);
+  const [monetagRevenue, setMonetagRevenue] = useState(0);
+  const [affiliateData, setAffiliateData] = useState<any>({ partners: [], campaigns: [], verifiedRevenue: 0 });
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [paidInputs, setPaidInputs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
 
@@ -81,10 +86,76 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     }
   };
 
+  const fetchMonetagData = async () => {
+    try {
+      const res = await apiFetch('/api/monetization/monetag', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok) {
+        setMonetagPlacements(data.placements || []);
+        setMonetagRevenue(data.reportedRevenue || 0);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchAffiliateData = async () => {
+    try {
+      const res = await apiFetch('/api/monetization/affiliate', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok) setAffiliateData(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchMonetizationAnalytics = async () => {
+    try {
+      const res = await apiFetch('/api/monetization/analytics', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok) setAnalytics(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const toggleMonetagPlacement = async (placement: string, enabled: boolean) => {
+    try {
+      const res = await apiFetch(`/api/monetization/monetag/placements/${placement}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Could not update placement.');
+      await fetchMonetagData();
+    } catch (error: any) {
+      setStatusMsg(error.message || 'Could not update Monetag placement.');
+    }
+  };
+
+  const updateSponsorCampaign = async (campaignId: string, changes: Record<string, unknown>) => {
+    try {
+      const res = await apiFetch(`/api/monetization/sponsors/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(changes),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Could not update campaign.');
+      await fetchSponsorsData();
+      await fetchMonetizationAnalytics();
+      setStatusMsg('Campaign updated.');
+    } catch (error: any) {
+      setStatusMsg(error.message || 'Could not update campaign.');
+    }
+  };
+
   useEffect(() => {
     fetchAdminMetrics();
     fetchRightsData();
     fetchSponsorsData();
+    fetchMonetagData();
+    fetchAffiliateData();
+    fetchMonetizationAnalytics();
   }, [token]);
 
   const handlePublishMovie = async (movieId: string, newState: string) => {
@@ -201,6 +272,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
           { id: 'series', label: 'Series Catalog', icon: Tv },
           { id: 'rights', label: 'Rights Management', icon: ShieldCheck },
           { id: 'sponsors', label: 'Sponsors & Monetization', icon: DollarSign },
+          { id: 'monetag', label: 'Monetag', icon: Sparkles },
+          { id: 'affiliate', label: 'Affiliate', icon: ExternalLink },
+          { id: 'analytics', label: 'Revenue & Analytics', icon: BarChart3 },
           { id: 'audit', label: 'Audit Logs', icon: FileText },
         ].map(tab => {
           const Icon = tab.icon;
@@ -234,7 +308,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
             </div>
             <div className="bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800 space-y-1">
               <span className="text-neutral-400 text-xs font-medium">Total Watch Hours</span>
-              <div className="text-2xl font-black text-white">{metrics.totalWatchHours} hrs</div>
+              <div className="text-2xl font-black text-white">{metrics.totalWatchHours === null ? 'Not tracked' : `${metrics.totalWatchHours} hrs`}</div>
             </div>
             <div className="bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800 space-y-1">
               <span className="text-neutral-400 text-xs font-medium">Sponsor Impressions</span>
@@ -422,6 +496,116 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
               </div>
             ))}
           </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold text-white">Campaigns and payments</h3>
+            {campaigns.map(campaign => {
+              const campaignData = campaign as SponsorCampaign & { agreedPrice?: number | string; paidAmount?: number | string; outstandingAmount?: number | string };
+              const impressions = campaignData.impressionsCount || 0;
+              const clicks = campaignData.clicksCount || 0;
+              const active = campaignData.active && new Date(campaignData.endDate) >= new Date();
+              return (
+                <div key={campaign.id} className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] gap-3 items-center border-b border-neutral-800 py-3 text-xs">
+                  <div>
+                    <div className="font-semibold text-white">{campaign.name}</div>
+                    <div className="text-neutral-500">{campaign.placement} · {active ? 'Active' : campaignData.active ? 'Ended' : 'Paused'}</div>
+                    <div className="text-neutral-500">{impressions.toLocaleString()} impressions · {clicks.toLocaleString()} clicks · CTR {impressions ? (clicks / impressions * 100).toFixed(2) : '0.00'}%</div>
+                  </div>
+                  <div className="text-neutral-300">Contracted ${Number(campaignData.agreedPrice || 0).toFixed(2)}</div>
+                  <div className="text-neutral-300">Paid ${Number(campaignData.paidAmount || 0).toFixed(2)} · Outstanding ${Number(campaignData.outstandingAmount ?? Number(campaignData.agreedPrice || 0) - Number(campaignData.paidAmount || 0)).toFixed(2)}</div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      aria-label={`Paid amount for ${campaign.name}`}
+                      type="number"
+                      min="0"
+                      max={Number(campaignData.agreedPrice || 0)}
+                      step="0.01"
+                      value={paidInputs[campaign.id] ?? String(campaignData.paidAmount || 0)}
+                      onChange={event => setPaidInputs(previous => ({ ...previous, [campaign.id]: event.target.value }))}
+                      className="w-24 rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-white"
+                    />
+                    <button onClick={() => updateSponsorCampaign(campaign.id, { paidAmount: Number(paidInputs[campaign.id] ?? campaignData.paidAmount ?? 0) })} className="rounded bg-neutral-800 px-2 py-1 text-white">Save</button>
+                    <button onClick={() => updateSponsorCampaign(campaign.id, { active: !campaignData.active })} className="rounded bg-neutral-800 px-2 py-1 text-neutral-300">{campaignData.active ? 'Pause' : 'Activate'}</button>
+                  </div>
+                </div>
+              );
+            })}
+            {campaigns.length === 0 && <p className="text-xs text-neutral-500">No sponsor campaigns recorded.</p>}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'monetag' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+            <div>
+              <h2 className="text-lg font-bold text-white">Monetag placements</h2>
+              <p className="text-xs text-neutral-400">Reported estimated revenue: ${Number(monetagRevenue).toFixed(2)}</p>
+            </div>
+            <span className="text-[10px] text-amber-300">Estimate only; not verified revenue</span>
+          </div>
+          {monetagPlacements.map(item => (
+            <label key={item.placement} className="flex items-center justify-between border-b border-neutral-800 py-3 text-sm">
+              <span className="text-neutral-200">{item.placement.replaceAll('_', ' ')}</span>
+              <input type="checkbox" checked={item.enabled} onChange={event => toggleMonetagPlacement(item.placement, event.target.checked)} aria-label={`Enable Monetag ${item.placement}`} />
+            </label>
+          ))}
+          {monetagPlacements.length === 0 && <p className="text-xs text-neutral-500">No placement configuration is available.</p>}
+        </div>
+      )}
+
+      {activeTab === 'affiliate' && (
+        <div className="space-y-5">
+          <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+            <h2 className="text-lg font-bold text-white">Affiliate partners and campaigns</h2>
+            <span className="text-xs text-emerald-300">Verified revenue: ${Number(affiliateData.verifiedRevenue || 0).toFixed(2)}</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {affiliateData.partners.map((partner: any) => (
+              <div key={partner.id} className="border-b border-neutral-800 py-3">
+                <div className="text-sm font-semibold text-white">{partner.partnerName}</div>
+                <a href={partner.websiteUrl} target="_blank" rel="noreferrer" className="text-xs text-neutral-400">{partner.websiteUrl}</a>
+              </div>
+            ))}
+          </div>
+          {affiliateData.campaigns.map((campaign: any) => (
+            <div key={campaign.id} className="border-b border-neutral-800 py-3 text-xs">
+              <div className="font-semibold text-white">{campaign.campaignName} · {campaign.partner.partnerName}</div>
+              <div className="text-neutral-400">{campaign.placement} · {campaign.clicksCount} clicks</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {campaign.conversions.map((conversion: any) => (
+                  <span key={conversion.id} className={`rounded px-2 py-1 ${conversion.status === 'VERIFIED' ? 'bg-emerald-950 text-emerald-300' : conversion.status === 'REJECTED' ? 'bg-neutral-800 text-neutral-400' : 'bg-amber-950 text-amber-300'}`}>
+                    {conversion.status} · {conversion.currency} {Number(conversion.commissionRevenue).toFixed(2)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+          {affiliateData.campaigns.length === 0 && <p className="text-xs text-neutral-500">No affiliate campaigns recorded.</p>}
+        </div>
+      )}
+
+      {activeTab === 'analytics' && (
+        <div className="space-y-5">
+          <h2 className="text-lg font-bold text-white">Revenue and placement analytics</h2>
+          {analytics && (
+            <>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs">
+                <div className="border-b border-neutral-800 py-3"><div className="text-neutral-400">Monetag reported estimate</div><div className="mt-1 text-emerald-300">${Number(analytics.monetagReportedEstimatedRevenue).toFixed(2)}</div></div>
+                <div className="border-b border-neutral-800 py-3"><div className="text-neutral-400">Sponsor contracted</div><div className="mt-1 text-white">${Number(analytics.sponsorContractedRevenue).toFixed(2)}</div></div>
+                <div className="border-b border-neutral-800 py-3"><div className="text-neutral-400">Sponsor paid</div><div className="mt-1 text-white">${Number(analytics.sponsorPaidRevenue).toFixed(2)}</div></div>
+                <div className="border-b border-neutral-800 py-3"><div className="text-neutral-400">Sponsor outstanding</div><div className="mt-1 text-amber-300">${Number(analytics.sponsorOutstandingRevenue).toFixed(2)}</div></div>
+                <div className="border-b border-neutral-800 py-3"><div className="text-neutral-400">Affiliate verified</div><div className="mt-1 text-emerald-300">${Number(analytics.affiliateVerifiedRevenue).toFixed(2)}</div></div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-neutral-800 text-neutral-400"><tr><th className="py-2">Placement</th><th>Impressions</th><th>Clicks</th><th>CTR</th></tr></thead>
+                  <tbody>{analytics.placementPerformance.map((row: any) => <tr key={row.placement} className="border-b border-neutral-900"><td className="py-2 text-neutral-200">{row.placement}</td><td>{row.impressions}</td><td>{row.clicks}</td><td>{Number(row.ctr).toFixed(2)}%</td></tr>)}</tbody>
+                </table>
+              </div>
+            </>
+          )}
+          {!analytics && <p className="text-xs text-neutral-500">Analytics are unavailable.</p>}
         </div>
       )}
 

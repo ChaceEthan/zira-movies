@@ -16,16 +16,25 @@ The app's API must be deployed separately. Configure the backend CORS allowlist 
 
 ## Backend and Database
 
-The repository does not currently contain a runnable backend: `server.ts` and the files under `src/server/routes/` are empty. Do not deploy those files as an API until the Express entry point, routes, authentication checks, and CORS policy are implemented and verified.
+Deploy the Express API as a separate long-running Node.js service from the repository root:
 
-When the API is available, deploy it as a separate long-running Node.js service. Configure `PORT`, `NODE_ENV`, `FRONTEND_URL`, `CORS_ORIGINS`, `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, and any integrations it actually uses in the backend provider's secret store.
+- Build command: `npm run build:backend`
+- Start command: `npm start`
+- Health check: `/health`
+- Database readiness check: `/ready`
 
-Prisma schema configuration uses PostgreSQL through `DATABASE_URL`. There are no checked-in Prisma migrations. Do not run `prisma db push` or apply a production schema change until a reviewed, non-destructive migration has been created and tested against a disposable database backup.
+Configure `PORT`, `NODE_ENV=production`, `FRONTEND_URL`, `CORS_ORIGINS`, `DATABASE_URL`, and a randomly generated `JWT_SECRET` of at least 32 characters in the backend provider's secret store. Include the exact Vercel origin in `FRONTEND_URL` or `CORS_ORIGINS`. Keep the database and JWT values out of Vercel.
+
+Prisma schema configuration uses PostgreSQL through `DATABASE_URL`. The repository has no baseline migrations, including for the existing content tables. The monetization schema adds tables and columns, but there is no safe migration chain for an existing production database yet. Do not run `prisma db push` or apply schema changes to production; first create and review a migration plan against a production backup and a disposable database.
 
 ## Cloudflare R2
 
-Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_R2_ENDPOINT`, `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_BUCKET`, and `CLOUDFLARE_R2_PUBLIC_URL` only on the backend. Keep the bucket's public delivery URL separate from the private S3-compatible credentials. The current server-side R2 service does not perform an upload and must be completed before production uploads are enabled.
+Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_BUCKET`, and `CLOUDFLARE_R2_PUBLIC_URL` only on the backend. Keep the bucket's public delivery URL separate from the private S3-compatible credentials. The presigned-upload endpoint requires an authenticated editor/admin token. Configure bucket CORS to allow the Vercel origin and `PUT` requests for browser uploads.
+
+## Monetization Integrations
+
+Sponsor campaign and affiliate events are stored by the API. Affiliate conversions remain pending until an administrator verifies or rejects them; only verified commissions are included in verified revenue. Monetag API records are explicitly labeled reported estimates. Placement enablement is stored in PostgreSQL. The Vercel `VITE_MONETAG_ZONE_*` values are public zone identifiers, not secrets; an approved Monetag tag/client integration is still required before those IDs render ads. No secret Monetag credentials belong in frontend configuration.
 
 ## Readiness
 
-Vercel configuration and the frontend API-origin setting are prepared, but deployment readiness depends on a successful production build and a separately implemented, tested backend. No deployment is performed by this guide.
+The Vite frontend and Express backend have separate build commands. Prisma schema validation and client generation do not migrate a database. No Vercel or backend deployment is performed by this guide.

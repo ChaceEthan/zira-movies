@@ -2,6 +2,7 @@ import React from 'react';
 import { HeroBanner } from '../components/HeroBanner';
 import { ContentRail } from '../components/ContentRail';
 import { SponsorBanner } from '../components/SponsorBanner';
+import { MonetagAd } from '../components/MonetagAd';
 import { Movie, Series, WatchProgress, SponsorBannerPlacement } from '../types';
 import { Flame, Sparkles, Trophy, Globe, Heart, Shield, Film, Tv } from 'lucide-react';
 
@@ -73,6 +74,8 @@ export function HomeView({
         />
       )}
 
+      <MonetagAd placement="HOME_BOTTOM_BANNER" />
+
       {/* Continue Watching Rail */}
       {continueWatchingItems.length > 0 && (
         <ContentRail
@@ -100,6 +103,8 @@ export function HomeView({
         onToggleMyList={onToggleMyList}
         myListIds={myListIds}
       />
+
+      <MonetagAd placement="HOME_BETWEEN_RAILS" />
 
       {/* Direct Sponsor Banner Placement */}
       <SponsorBanner placementData={sponsorPlacement} onTrackClick={onTrackSponsorClick} />

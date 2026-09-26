@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import Hls from 'hls.js';
 import { Movie, Series, Episode } from '../types';
+import { MonetagAd } from './MonetagAd';
 
 interface VideoPlayerModalProps {
   item: Movie | Series;
@@ -65,6 +66,8 @@ export function VideoPlayerModal({
       hls.loadSource(hlsSrc);
       hls.attachMedia(video);
       return () => hls.destroy();
+    } else if (hlsSrc && video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = hlsSrc;
     } else if (videoSrc) {
       video.src = videoSrc;
     } else {
@@ -315,6 +318,8 @@ export function VideoPlayerModal({
           <RotateCw className="w-6 h-6" />
         </button>
       </div>
+
+      <MonetagAd placement="PLAYER_COMPANION" className="relative z-10 mx-auto max-h-20 w-full max-w-2xl overflow-hidden" />
 
       {/* Bottom Control Bar */}
       <div className={`relative z-20 p-4 lg:p-6 bg-gradient-to-t from-black/95 via-black/60 to-transparent space-y-2 transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>

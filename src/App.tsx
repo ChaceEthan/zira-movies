@@ -12,6 +12,7 @@ import { SeriesDetailsView } from './views/SeriesDetailsView';
 import { MyListView } from './views/MyListView';
 import { ProfileView } from './views/ProfileView';
 import { AdminView } from './views/AdminView';
+import { MonetagAd } from './components/MonetagAd';
 import { Movie, Series, Episode, Genre, User, WatchProgress, WatchlistItem, SponsorBannerPlacement } from './types';
 
 export default function App() {
@@ -403,6 +404,7 @@ export default function App() {
       </main>
 
       {/* Footer */}
+      <MonetagAd placement="FOOTER_BANNER" className="px-4 py-3" />
       <footer className="border-t border-neutral-900 bg-neutral-950 py-8 px-4 text-center text-xs text-neutral-500 space-y-2 hidden md:block">
         <div className="font-bold text-neutral-300">ZIRA • STREAM • WATCH • ENJOY</div>
         <p>Free, legal streaming platform for Rwanda, Africa, and global audiences.</p>

@@ -9,7 +9,7 @@ import seriesRoutes from './src/server/routes/series';
 import userRoutes from './src/server/routes/user';
 import uploadRoutes from './upload';
 
-const app = express();
+export const app = express();
 const port = Number(process.env.PORT || 4000);
 const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigins = new Set(
@@ -82,12 +82,14 @@ const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
 };
 app.use(errorHandler);
 
-const server = app.listen(port, '0.0.0.0', () => {
-	console.log(`ZIRA API listening on port ${port}`);
-});
+const server = process.env.ZIRA_DISABLE_LISTEN === '1'
+	? undefined
+	: app.listen(port, '0.0.0.0', () => {
+		console.log(`ZIRA API listening on port ${port}`);
+	});
 
 async function shutdown() {
-	server.close();
+	if (server) await new Promise<void>(resolve => server.close(() => resolve()));
 	await prisma.$disconnect();
 }
 

@@ -501,6 +501,9 @@ model AffiliateConversion {
 model MonetagPlacementSetting {
   placement AdPlacementType @id
   enabled   Boolean         @default(false)
+  zoneId    String?
+  scriptUrl String?
+  tagCode   String?
   updatedAt DateTime        @updatedAt
 }
 

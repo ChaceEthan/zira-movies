@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Play, Plus, Check, Star, Share2, Tv, Clock, Film } from 'lucide-react';
 import { Series, Episode, WatchProgress } from '../types';
+import { MonetagAd } from '../components/MonetagAd';
 
 interface SeriesDetailsViewProps {
   series: Series;
@@ -98,6 +99,8 @@ export function SeriesDetailsView({
           </div>
         </div>
       </div>
+
+      <MonetagAd placement="SERIES_DETAILS_BANNER" />
 
       {/* Season Picker Tabs */}
       {series.seasons.length > 0 && (

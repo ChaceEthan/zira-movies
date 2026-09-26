@@ -6,6 +6,9 @@ import { authenticateUser, requireRole, type AuthenticatedRequest } from '../../
 const router = Router();
 const admins = ['ADMIN', 'SUPER_ADMIN'];
 const placements = Object.values(AdPlacementType);
+const monetagScriptOrigins = new Set(
+	(process.env.MONETAG_ALLOWED_SCRIPT_ORIGINS || '').split(',').map(origin => origin.trim()).filter(Boolean),
+);
 
 function publicUrl(value: unknown): string | null {
 	if (typeof value !== 'string') return null;
@@ -15,6 +18,31 @@ function publicUrl(value: unknown): string | null {
 	} catch {
 		return null;
 	}
+}
+
+function monetagScriptUrl(value: unknown): string | null {
+	const url = publicUrl(value);
+	if (!url) return null;
+	const parsed = new URL(url);
+	return parsed.protocol === 'https:' && monetagScriptOrigins.has(parsed.origin) ? parsed.toString() : null;
+}
+
+function getMonetagScriptUrl(zoneId: string, tagCode: unknown): string | null {
+	if (typeof tagCode !== 'string' || tagCode.length > 2000) return null;
+	const match = /^\s*<script\b([^>]*)>\s*<\/script>\s*$/i.exec(tagCode);
+	if (!match || /\bon[a-z]+\s*=/i.test(match[1])) return null;
+	const src = /\bsrc\s*=\s*(["'])(.*?)\1/i.exec(match[1])?.[2];
+	if (!src) return null;
+	const embeddedZone = /\bdata-zone\s*=\s*(["'])(.*?)\1/i.exec(match[1])?.[2];
+	if (embeddedZone && embeddedZone !== zoneId) return null;
+	return monetagScriptUrl(src);
+}
+
+function parseUsdAmount(value: unknown, defaultValue = '0'): Prisma.Decimal | null {
+	const raw = value ?? defaultValue;
+	if ((typeof raw !== 'string' && typeof raw !== 'number') || !/^\d{1,10}(?:\.\d{1,2})?$/.test(String(raw))) return null;
+	const amount = new Prisma.Decimal(raw);
+	return amount.isFinite() ? amount : null;
 }
 
 router.get('/placements', async (req, res, next) => {
@@ -143,6 +171,33 @@ router.post('/sponsors', authenticateUser, requireRole(admins), async (req: Auth
 	}
 });
 
+router.patch('/sponsors/:sponsorId', authenticateUser, requireRole(admins), async (req: AuthenticatedRequest, res, next) => {
+	try {
+		const data: Prisma.SponsorUpdateInput = {};
+		if (typeof req.body.name === 'string' && req.body.name.trim()) data.name = req.body.name.trim();
+		if (req.body.websiteUrl !== undefined) {
+			const websiteUrl = publicUrl(req.body.websiteUrl);
+			if (!websiteUrl) {
+				res.status(400).json({ error: 'A valid sponsor website URL is required.' });
+				return;
+			}
+			data.websiteUrl = websiteUrl;
+		}
+		if (typeof req.body.active === 'boolean') data.active = req.body.active;
+		if (typeof req.body.contactName === 'string') data.contactName = req.body.contactName.trim() || null;
+		if (typeof req.body.contactEmail === 'string') data.contactEmail = req.body.contactEmail.trim() || null;
+		if (Object.keys(data).length === 0) {
+			res.status(400).json({ error: 'No valid sponsor changes provided.' });
+			return;
+		}
+		const sponsor = await prisma.sponsor.update({ where: { id: req.params.sponsorId }, data });
+		await prisma.adminAuditLog.create({ data: { adminId: req.auth!.userId, action: 'UPDATE_SPONSOR', entityType: 'Sponsor', entityId: sponsor.id, metadata: JSON.stringify(req.body) } });
+		res.json({ sponsor });
+	} catch (error) {
+		next(error);
+	}
+});
+
 router.post('/sponsors/:sponsorId/campaigns', authenticateUser, requireRole(admins), async (req: AuthenticatedRequest, res, next) => {
 	try {
 		const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
@@ -150,8 +205,8 @@ router.post('/sponsors/:sponsorId/campaigns', authenticateUser, requireRole(admi
 		const startDate = new Date(req.body.startDate);
 		const endDate = new Date(req.body.endDate);
 		const placement = req.body.placement;
-		const agreedPrice = new Prisma.Decimal(req.body.agreedPrice ?? 0);
-		if (!name || !destinationUrl || !Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate || !placements.includes(placement) || agreedPrice.isNegative()) {
+		const agreedPrice = parseUsdAmount(req.body.agreedPrice);
+		if (!name || !destinationUrl || !Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate || !placements.includes(placement) || !agreedPrice) {
 			res.status(400).json({ error: 'Provide a name, valid date range, placement, destination URL, and non-negative agreed price.' });
 			return;
 		}
@@ -183,7 +238,7 @@ router.post('/sponsors/:sponsorId/campaigns', authenticateUser, requireRole(admi
 
 router.patch('/sponsors/campaigns/:campaignId', authenticateUser, requireRole(admins), async (req: AuthenticatedRequest, res, next) => {
 	try {
-		const current = await prisma.sponsorCampaign.findUnique({ where: { id: req.params.campaignId } });
+		const current = await prisma.sponsorCampaign.findUnique({ where: { id: req.params.campaignId }, include: { creatives: true } });
 		if (!current) {
 			res.status(404).json({ error: 'Campaign not found.' });
 			return;
@@ -191,14 +246,60 @@ router.patch('/sponsors/campaigns/:campaignId', authenticateUser, requireRole(ad
 		const data: Prisma.SponsorCampaignUpdateInput = {};
 		if (typeof req.body.active === 'boolean') data.active = req.body.active;
 		if (typeof req.body.name === 'string' && req.body.name.trim()) data.name = req.body.name.trim();
+		if (req.body.destinationUrl !== undefined) {
+			const destinationUrl = publicUrl(req.body.destinationUrl);
+			if (!destinationUrl) {
+				res.status(400).json({ error: 'A valid campaign destination URL is required.' });
+				return;
+			}
+			data.destinationUrl = destinationUrl;
+		}
+		if (req.body.placement !== undefined) {
+			if (!placements.includes(req.body.placement)) {
+				res.status(400).json({ error: 'Invalid campaign placement.' });
+				return;
+			}
+			data.placement = req.body.placement;
+		}
+		const startDate = req.body.startDate === undefined ? current.startDate : new Date(req.body.startDate);
+		const endDate = req.body.endDate === undefined ? current.endDate : new Date(req.body.endDate);
+		if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate) {
+			res.status(400).json({ error: 'Campaign end date must be later than its start date.' });
+			return;
+		}
+		if (req.body.startDate !== undefined) data.startDate = startDate;
+		if (req.body.endDate !== undefined) data.endDate = endDate;
+		if (req.body.agreedPrice !== undefined) {
+			const agreedPrice = parseUsdAmount(req.body.agreedPrice);
+			if (!agreedPrice || agreedPrice.lessThan(current.paidAmount)) {
+				res.status(400).json({ error: 'Contracted amount cannot be negative or lower than the paid amount.' });
+				return;
+			}
+			data.agreedPrice = agreedPrice;
+		}
 		if (req.body.paidAmount !== undefined) {
-			const paidAmount = new Prisma.Decimal(req.body.paidAmount);
-			if (paidAmount.isNegative() || paidAmount.greaterThan(current.agreedPrice)) {
+			const paidAmount = parseUsdAmount(req.body.paidAmount);
+			if (!paidAmount || paidAmount.greaterThan(current.agreedPrice)) {
 				res.status(400).json({ error: 'Paid amount must be between zero and the contracted amount.' });
 				return;
 			}
 			data.paidAmount = paidAmount;
 			data.internalPaymentStatus = paidAmount.isZero() ? CampaignPaymentStatus.UNPAID : paidAmount.equals(current.agreedPrice) ? CampaignPaymentStatus.PAID : CampaignPaymentStatus.PARTIAL;
+		}
+		const creative = current.creatives[0];
+		if (creative && (req.body.imageUrl !== undefined || req.body.creativeTitle !== undefined || req.body.tagline !== undefined)) {
+			const creativeData: Prisma.AdCreativeUpdateInput = {};
+			if (req.body.imageUrl !== undefined) {
+				const imageUrl = publicUrl(req.body.imageUrl);
+				if (!imageUrl) {
+					res.status(400).json({ error: 'A valid creative image URL is required.' });
+					return;
+				}
+				creativeData.imageUrl = imageUrl;
+			}
+			if (typeof req.body.creativeTitle === 'string' && req.body.creativeTitle.trim()) creativeData.title = req.body.creativeTitle.trim();
+			if (typeof req.body.tagline === 'string') creativeData.tagline = req.body.tagline.trim() || null;
+			await prisma.adCreative.update({ where: { id: creative.id }, data: creativeData });
 		}
 		const campaign = await prisma.sponsorCampaign.update({ where: { id: current.id }, data });
 		await prisma.adminAuditLog.create({ data: { adminId: req.auth!.userId, action: 'UPDATE_SPONSOR_CAMPAIGN', entityType: 'SponsorCampaign', entityId: campaign.id, metadata: JSON.stringify(req.body) } });
@@ -211,9 +312,28 @@ router.patch('/sponsors/campaigns/:campaignId', authenticateUser, requireRole(ad
 router.get('/monetag', authenticateUser, requireRole(admins), async (_req, res, next) => {
 	try {
 		const settings = await prisma.monetagPlacementSetting.findMany();
-		const rows = placements.map(placement => ({ placement, enabled: settings.find(setting => setting.placement === placement)?.enabled ?? false }));
+		const rows = placements.map(placement => {
+			const setting = settings.find(candidate => candidate.placement === placement);
+			return { placement, enabled: setting?.enabled ?? false, zoneId: setting?.zoneId || '', tagCode: setting?.tagCode || '' };
+		});
 		const reported = await prisma.monetagRevenueRecord.aggregate({ _sum: { amount: true } });
 		res.json({ placements: rows, reportedRevenue: Number(reported._sum.amount || 0), revenueType: 'REPORTED_ESTIMATE' });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.get('/monetag/placement', async (req, res, next) => {
+	try {
+		const placement = req.query.placement;
+		if (typeof placement !== 'string' || !placements.includes(placement as AdPlacementType)) {
+			res.status(400).json({ error: 'A valid placement is required.' });
+			return;
+		}
+		const setting = await prisma.monetagPlacementSetting.findUnique({ where: { placement: placement as AdPlacementType } });
+		const scriptUrl = setting?.zoneId ? getMonetagScriptUrl(setting.zoneId, setting.tagCode) : null;
+		const enabled = Boolean(setting?.enabled && setting.zoneId && scriptUrl);
+		res.json({ placement, enabled, zoneId: enabled ? setting!.zoneId : null, tagCode: enabled ? setting!.tagCode : null });
 	} catch (error) {
 		next(error);
 	}
@@ -222,12 +342,23 @@ router.get('/monetag', authenticateUser, requireRole(admins), async (_req, res, 
 router.patch('/monetag/placements/:placement', authenticateUser, requireRole(admins), async (req: AuthenticatedRequest, res, next) => {
 	try {
 		const placement = req.params.placement as AdPlacementType;
-		if (!placements.includes(placement) || typeof req.body.enabled !== 'boolean') {
-			res.status(400).json({ error: 'Valid placement and boolean enabled value are required.' });
+		const zoneId = typeof req.body.zoneId === 'string' ? req.body.zoneId.trim() : '';
+		const tagCode = typeof req.body.tagCode === 'string' ? req.body.tagCode.trim() : '';
+		const scriptUrl = tagCode ? getMonetagScriptUrl(zoneId, tagCode) : null;
+		if (!placements.includes(placement) || typeof req.body.enabled !== 'boolean' || (zoneId && !/^[A-Za-z0-9_-]{1,80}$/.test(zoneId)) || (tagCode && !scriptUrl)) {
+			res.status(400).json({ error: 'Provide a valid placement, enabled flag, Zone ID, and single-script HTTPS publisher tag from an allowlisted origin.' });
 			return;
 		}
-		const setting = await prisma.monetagPlacementSetting.upsert({ where: { placement }, create: { placement, enabled: req.body.enabled }, update: { enabled: req.body.enabled } });
-		await prisma.adminAuditLog.create({ data: { adminId: req.auth!.userId, action: 'UPDATE_MONETAG_PLACEMENT', entityType: 'MonetagPlacementSetting', entityId: placement, metadata: JSON.stringify({ enabled: setting.enabled }) } });
+		if (req.body.enabled && (!zoneId || !tagCode || !scriptUrl)) {
+			res.status(400).json({ error: 'A Zone ID and verified publisher tag are required before enabling a placement.' });
+			return;
+		}
+		const setting = await prisma.monetagPlacementSetting.upsert({
+			where: { placement },
+			create: { placement, enabled: req.body.enabled, zoneId: zoneId || null, scriptUrl, tagCode: tagCode || null },
+			update: { enabled: req.body.enabled, zoneId: zoneId || null, scriptUrl, tagCode: tagCode || null },
+		});
+		await prisma.adminAuditLog.create({ data: { adminId: req.auth!.userId, action: 'UPDATE_MONETAG_PLACEMENT', entityType: 'MonetagPlacementSetting', entityId: placement, metadata: JSON.stringify({ enabled: setting.enabled, zoneId: setting.zoneId }) } });
 		res.json({ setting });
 	} catch (error) {
 		next(error);
@@ -236,14 +367,15 @@ router.patch('/monetag/placements/:placement', authenticateUser, requireRole(adm
 
 router.post('/monetag/revenue', authenticateUser, requireRole(admins), async (req, res, next) => {
 	try {
-		const amount = new Prisma.Decimal(req.body.amount);
+		const amount = parseUsdAmount(req.body.amount);
 		const reportDate = new Date(req.body.reportDate);
 		const source = typeof req.body.source === 'string' ? req.body.source.trim() : '';
-		if (amount.isNegative() || !Number.isFinite(reportDate.getTime()) || !source) {
-			res.status(400).json({ error: 'A non-negative reported amount, report date, and source are required.' });
+		const currency = typeof req.body.currency === 'string' ? req.body.currency.toUpperCase() : 'USD';
+		if (!amount || currency !== 'USD' || !Number.isFinite(reportDate.getTime()) || !source) {
+			res.status(400).json({ error: 'A finite non-negative USD report, report date, and source are required.' });
 			return;
 		}
-		const record = await prisma.monetagRevenueRecord.create({ data: { amount, reportDate, source, currency: typeof req.body.currency === 'string' ? req.body.currency : 'USD' } });
+		const record = await prisma.monetagRevenueRecord.create({ data: { amount, reportDate, source, currency } });
 		res.status(201).json({ record, revenueType: 'REPORTED_ESTIMATE' });
 	} catch (error) {
 		next(error);
@@ -279,6 +411,32 @@ router.post('/affiliate/partners', authenticateUser, requireRole(admins), async 
 	}
 });
 
+router.patch('/affiliate/partners/:partnerId', authenticateUser, requireRole(admins), async (req: AuthenticatedRequest, res, next) => {
+	try {
+		const data: Prisma.AffiliatePartnerUpdateInput = {};
+		if (typeof req.body.partnerName === 'string' && req.body.partnerName.trim()) data.partnerName = req.body.partnerName.trim();
+		if (typeof req.body.active === 'boolean') data.active = req.body.active;
+		if (typeof req.body.description === 'string') data.description = req.body.description.trim() || null;
+		if (req.body.websiteUrl !== undefined) {
+			const websiteUrl = publicUrl(req.body.websiteUrl);
+			if (!websiteUrl) {
+				res.status(400).json({ error: 'A valid partner website URL is required.' });
+				return;
+			}
+			data.websiteUrl = websiteUrl;
+		}
+		if (Object.keys(data).length === 0) {
+			res.status(400).json({ error: 'No valid partner changes provided.' });
+			return;
+		}
+		const partner = await prisma.affiliatePartner.update({ where: { id: req.params.partnerId }, data });
+		await prisma.adminAuditLog.create({ data: { adminId: req.auth!.userId, action: 'UPDATE_AFFILIATE_PARTNER', entityType: 'AffiliatePartner', entityId: partner.id } });
+		res.json({ partner });
+	} catch (error) {
+		next(error);
+	}
+});
+
 router.post('/affiliate/campaigns', authenticateUser, requireRole(admins), async (req: AuthenticatedRequest, res, next) => {
 	try {
 		const campaignName = typeof req.body.campaignName === 'string' ? req.body.campaignName.trim() : '';
@@ -287,8 +445,8 @@ router.post('/affiliate/campaigns', authenticateUser, requireRole(admins), async
 		const imageUrl = req.body.imageUrl ? publicUrl(req.body.imageUrl) : null;
 		const startDate = new Date(req.body.startDate);
 		const endDate = new Date(req.body.endDate);
-		if (!campaignName || !req.body.partnerId || !destinationUrl || !trackingUrl || (req.body.imageUrl && !imageUrl) || !Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate || !placements.includes(req.body.placement)) {
-			res.status(400).json({ error: 'Provide a partner, campaign name, valid URLs, date range, and placement.' });
+		if (!campaignName || !req.body.partnerId || !destinationUrl || !trackingUrl || !imageUrl || !Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate || !placements.includes(req.body.placement)) {
+			res.status(400).json({ error: 'Provide a partner, campaign name, valid affiliate and creative URLs, date range, and placement.' });
 			return;
 		}
 		const campaign = await prisma.affiliateCampaign.create({ data: { partnerId: req.body.partnerId, campaignName, destinationUrl, trackingUrl, imageUrl, placement: req.body.placement, startDate, endDate } });
@@ -299,18 +457,62 @@ router.post('/affiliate/campaigns', authenticateUser, requireRole(admins), async
 	}
 });
 
+router.patch('/affiliate/campaigns/:campaignId', authenticateUser, requireRole(admins), async (req: AuthenticatedRequest, res, next) => {
+	try {
+		const data: Prisma.AffiliateCampaignUpdateInput = {};
+		if (typeof req.body.active === 'boolean') data.active = req.body.active;
+		if (typeof req.body.campaignName === 'string' && req.body.campaignName.trim()) data.campaignName = req.body.campaignName.trim();
+		for (const field of ['destinationUrl', 'trackingUrl', 'imageUrl'] as const) {
+			if (req.body[field] === undefined) continue;
+			const url = req.body[field] === '' && field === 'imageUrl' ? null : publicUrl(req.body[field]);
+			if (req.body[field] && !url) {
+				res.status(400).json({ error: `Invalid ${field}.` });
+				return;
+			}
+			(data as Record<string, unknown>)[field] = url;
+		}
+		if (req.body.placement !== undefined) {
+			if (!placements.includes(req.body.placement)) {
+				res.status(400).json({ error: 'Invalid campaign placement.' });
+				return;
+			}
+			data.placement = req.body.placement;
+		}
+		const current = await prisma.affiliateCampaign.findUnique({ where: { id: req.params.campaignId } });
+		if (!current) {
+			res.status(404).json({ error: 'Affiliate campaign not found.' });
+			return;
+		}
+		const startDate = req.body.startDate === undefined ? current.startDate : new Date(req.body.startDate);
+		const endDate = req.body.endDate === undefined ? current.endDate : new Date(req.body.endDate);
+		if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate) {
+			res.status(400).json({ error: 'Campaign end date must be later than its start date.' });
+			return;
+		}
+		if (req.body.startDate !== undefined) data.startDate = startDate;
+		if (req.body.endDate !== undefined) data.endDate = endDate;
+		const campaign = await prisma.affiliateCampaign.update({ where: { id: current.id }, data });
+		await prisma.adminAuditLog.create({ data: { adminId: req.auth!.userId, action: 'UPDATE_AFFILIATE_CAMPAIGN', entityType: 'AffiliateCampaign', entityId: campaign.id } });
+		res.json({ campaign });
+	} catch (error) {
+		next(error);
+	}
+});
+
 router.post('/affiliate/campaigns/:campaignId/conversions', authenticateUser, requireRole(admins), async (req, res, next) => {
 	try {
-		const commissionRevenue = new Prisma.Decimal(req.body.commissionRevenue ?? 0);
-		if (commissionRevenue.isNegative()) {
-			res.status(400).json({ error: 'Commission revenue cannot be negative.' });
+		const externalReference = typeof req.body.externalReference === 'string' ? req.body.externalReference.trim() : '';
+		const commissionRevenue = parseUsdAmount(req.body.commissionRevenue);
+		const currency = typeof req.body.currency === 'string' ? req.body.currency.toUpperCase() : 'USD';
+		if (!commissionRevenue || !externalReference || currency !== 'USD') {
+			res.status(400).json({ error: 'An external reference and finite non-negative USD commission are required.' });
 			return;
 		}
 		const conversion = await prisma.affiliateConversion.create({ data: {
 			campaignId: req.params.campaignId,
-			externalReference: typeof req.body.externalReference === 'string' ? req.body.externalReference : null,
+			externalReference,
 			commissionRevenue,
-			currency: typeof req.body.currency === 'string' ? req.body.currency : 'USD',
+			currency,
 			status: AffiliateConversionStatus.PENDING,
 		} });
 		res.status(201).json({ conversion });

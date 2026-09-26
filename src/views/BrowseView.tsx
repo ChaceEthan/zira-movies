@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { MovieCard } from '../components/MovieCard';
+import { MonetagAd } from '../components/MonetagAd';
 import { Movie, Series, Genre, WatchProgress } from '../types';
 import { Search, Filter, Film, Tv, Sparkles } from 'lucide-react';
 
@@ -161,6 +162,9 @@ export function BrowseView({
           </select>
         </div>
       </div>
+
+      <MonetagAd placement="BROWSE_BANNER" />
+      {query.trim() && <MonetagAd placement="SEARCH_NATIVE" />}
 
       {/* Grid of Results */}
       <div>

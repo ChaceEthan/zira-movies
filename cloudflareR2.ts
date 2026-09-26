@@ -27,7 +27,7 @@ if (CLOUDFLARE_R2_ACCESS_KEY_ID && CLOUDFLARE_R2_SECRET_ACCESS_KEY && CLOUDFLARE
 
 export const r2Service = {
   isConfigured(): boolean {
-    return !!s3Client;
+    return Boolean(s3Client && CLOUDFLARE_R2_BUCKET && CLOUDFLARE_R2_PUBLIC_URL);
   },
 
   // Helper to generate R2 object keys based on content type
@@ -37,6 +37,10 @@ export const r2Service = {
 
   getSeriesPath(seriesId: string, type: 'poster' | 'backdrop', filename: string): string {
     return `series/${seriesId}/${type}/${filename}`;
+  },
+
+  getSponsorPath(sponsorId: string, filename: string): string {
+    return `sponsors/${sponsorId}/banners/${filename}`;
   },
 
   getEpisodePath(seriesId: string, seasonNumber: number, episodeNumber: number, type: 'video' | 'thumbnail' | 'subtitle', filename: string): string {
@@ -102,9 +106,12 @@ export const r2Service = {
 
   getPublicUrl(key: string): string {
     if (!CLOUDFLARE_R2_PUBLIC_URL) {
-      console.warn("CLOUDFLARE_R2_PUBLIC_URL is not set. Returning a generic R2 path.");
-      return `https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${CLOUDFLARE_R2_BUCKET}/${key}`;
+      throw new Error("CLOUDFLARE_R2_PUBLIC_URL is not configured.");
     }
-    return `${CLOUDFLARE_R2_PUBLIC_URL}/${key}`;
+    const publicUrl = new URL(CLOUDFLARE_R2_PUBLIC_URL);
+    if (publicUrl.protocol !== 'https:') {
+      throw new Error("CLOUDFLARE_R2_PUBLIC_URL must use HTTPS.");
+    }
+    return `${publicUrl.toString().replace(/\/+$/, '')}/${key}`;
   },
 };

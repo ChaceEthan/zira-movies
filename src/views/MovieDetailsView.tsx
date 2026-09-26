@@ -3,6 +3,7 @@ import { Play, Film, Plus, Check, Star, Share2, Shield, Calendar, Clock, Globe, 
 import { Movie, ContentRights, SponsorBannerPlacement } from '../types';
 import { ContentRail } from '../components/ContentRail';
 import { SponsorBanner } from '../components/SponsorBanner';
+import { MonetagAd } from '../components/MonetagAd';
 
 interface MovieDetailsViewProps {
   movie: Movie;
@@ -200,6 +201,7 @@ export function MovieDetailsView({
       </div>
 
       {/* Sponsor Banner */}
+      <MonetagAd placement="MOVIE_DETAILS_BANNER" />
       <SponsorBanner placementData={sponsorPlacement} onTrackClick={onTrackSponsorClick} />
 
       {/* Similar Titles Rail */}

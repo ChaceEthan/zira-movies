@@ -11,8 +11,10 @@
     "start": "node backend-dist/server.cjs",
     "start:backend": "node backend-dist/server.cjs",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/test/api.test.ts",
     "prisma:validate": "prisma validate --schema prisma/schema.prisma",
-    "prisma:generate": "prisma generate --schema prisma/schema.prisma"
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "admin:promote": "tsx scripts/promoteAdmin.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.850.0",

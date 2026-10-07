@@ -1,0 +1,40 @@
+{
+  "name": "zira-backend",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/src/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests prisma scripts",
+    "test": "tsx --test tests/api.test.ts",
+    "prisma:validate": "node scripts/prismaCli.cjs validate",
+    "prisma:generate": "node scripts/prismaCli.cjs generate",
+    "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "prisma:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "seed": "tsx prisma/seed.ts",
+    "admin:promote": "tsx scripts/promoteAdmin.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.850.0",
+    "@aws-sdk/s3-request-presigner": "^3.850.0",
+    "@prisma/client": "^6.15.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^22.14.0",
+    "eslint": "^9.0.0",
+    "typescript-eslint": "^8.0.0",
+    "prisma": "^6.15.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2"
+  }
+}

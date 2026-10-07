@@ -1,12 +1,27 @@
-# Admin Console Guide
+# Admin Guide
 
-Access the Admin Console by logging in with an `ADMIN` or `SUPER_ADMIN` account (e.g. `admin@zira.stream`) and clicking **Admin Console** in the top navigation or mobile menu.
+Admin routes require a valid access token and `ADMIN` or `SUPER_ADMIN` role. Editors can create/update content where the API explicitly grants editor access; hiding a UI tab is not the authorization boundary.
 
-### Administrative Capabilities
+## First Administrator
 
-1. **Metrics & Analytics**: Monitor total registered users, stream views, watch hours, and ad impression counts.
-2. **Movie Management**: Create movies, update state (`DRAFT` -> `PROCESSING` -> `PUBLISHED` -> `ARCHIVED`).
-3. **Series Management**: Create seasons and episodes, upload thumbnails and source video links.
-4. **Content Rights Audit**: Verify legal authorization (`OWNED`, `LICENSED`). The system blocks publishing if rights are `PENDING_VERIFICATION` or `EXPIRED`.
-5. **Sponsor Campaigns**: Register direct sponsors, create ad banners, select placements, and review impression/click metrics.
-6. **Audit Logs**: View timestamped records of all administrative actions.
+Register the intended account through the public registration flow, verify ownership out of band, set `ADMIN_EMAIL` in the backend environment, then run:
+
+```bash
+npm run admin:promote -- admin@example.com --i-verified-ownership
+```
+
+The email passed on the command line must match `ADMIN_EMAIL`. Do not seed or expose a built-in admin credential.
+
+## Available Dashboard Areas
+
+The current dashboard provides overview metrics, movie and series views, content-rights review, sponsor and campaign management, Monetag placement configuration, affiliate partner/campaign management, monetization analytics, and audit logs. Direct sponsor and affiliate campaigns track impressions/clicks; CTR is clicks divided by impressions.
+
+Dedicated user management, series season/episode editing, a complete upload library/workflow, and promoted-content management are not yet implemented. Do not treat the current UI as providing those controls. Upload presigning is an API capability for authorized editors/admins, not a completed admin upload workflow.
+
+## Publishing and Rights
+
+Allowed rights states are `OWNED`, `LICENSED`, `PERMISSION_GRANTED`, and `PUBLIC_DOMAIN`, subject to current rights dates. `PENDING_VERIFICATION` and `EXPIRED` must never be published. Keep license evidence in restricted operational records; do not put sensitive contracts into public metadata.
+
+## Monetization
+
+ZIRA V1 remains free to watch. Use direct sponsor banners, affiliate placements, promoted content, and house campaigns only. Do not configure forced redirects, popups, or player-control overlays. Verify sponsor destinations and publisher script origins before enabling campaigns.

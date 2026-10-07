@@ -1,15 +1,9 @@
-# Sponsor & Advertising Guide
+# Sponsor Campaigns
 
-ZIRA V1 provides direct sponsor advertising without intrusive video ads or popups.
+Direct sponsor campaigns are free-to-watch placements, not subscriptions or pay-per-view. Configure sponsors and campaigns in the admin dashboard. Campaigns have a schedule, placement, destination, price/payment notes, optional limits, and creative records.
 
-### Ad Placements
-- `HOME_BETWEEN_RAILS`: High visibility banner placed between homepage rails.
-- `PLAYER_COMPANION`: Banner displayed alongside or below video player controls.
-- `SEARCH_NATIVE`: Native promoted search suggestion cards.
-- `BROWSE_BANNER`: Banner rendered on category browse pages.
+The public placement API chooses an active, in-window sponsor campaign and records an impression when it returns a creative. A click is recorded by the tracking endpoint when the banner is activated. CTR is clicks divided by impressions. Confirm destination URLs and image availability before activation.
 
-### Campaign Setup
-1. Go to **Admin Console -> Sponsors**.
-2. Click **Add Sponsor Partner**.
-3. Create a campaign specifying start date, end date, placement type, banner image URL, tagline, call-to-action button text, and target destination URL.
-4. Active campaigns track impression counts and click-through rates (CTR) in real time.
+The admin UI manages sponsor records, campaign status, and creatives. A complete R2-backed creative upload workflow is not currently available from the dashboard; the protected presigned-upload API can be used by an authorized upload client.
+
+Do not enable popups, forced redirects, popunders, or ads that cover player controls.

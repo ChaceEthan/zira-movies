@@ -1,37 +1,28 @@
-# ZIRA System Architecture
+# ZIRA Architecture
 
-## Overview
+## Runtime
 
-ZIRA is built as a high-performance full-stack web application designed for mobile devices across Rwanda and Africa.
+- `frontend/` is the existing React 19, Vite, TypeScript, Tailwind CSS, and HLS.js application. It is intentionally preserved rather than rewritten into a new framework.
+- `backend/` is a Node.js, Express, TypeScript REST API. PostgreSQL access uses Prisma; there is no in-memory production data adapter.
+- `backend/prisma/` owns the schema, migrations, and fictional development seed.
+- `docs/` contains operational guides.
 
-### Stack Breakdown
+The browser calls `NEXT_PUBLIC_API_URL` when set and otherwise requests `/api` on its current origin. Configure the URL per environment; the client shows a retryable unavailable state when it cannot load the catalog.
 
-- **Frontend**: React 19, Vite, Tailwind CSS v4, Lucide Icons, HLS.js.
-- **Backend**: Node.js, Express, TypeScript (`server.ts`).
-- **Database**: PostgreSQL with Prisma ORM (`prisma/schema.prisma`), complemented by an in-memory/JSON store adapter for out-of-the-box local execution.
-- **Media Storage**: Cloudflare R2 (`CLOUDFLARE_R2_*`) with structured key hierarchies and local mock storage adapter.
-- **Video Transcoding**: `VideoProcessingService` abstraction generating multi-bitrate renditions (`360p`, `480p`, `720p`, `1080p`, `master.m3u8`).
-- **Monetization Engine**: Direct sponsors, banner campaigns, impression & click counters, and affiliate partners.
+## Security Boundaries
 
----
+JWT access tokens are short-lived. Refresh credentials are rotated, stored as hashes in PostgreSQL sessions, and delivered in an HttpOnly cookie. API role checks are enforced by Express middleware. Production requires separate access and refresh secrets, a database, and an explicit CORS origin.
 
-## Directory Structure
-```
-zira/
-├── prisma/
-│   └── schema.prisma         # Production PostgreSQL Prisma Schema
-├── src/
-│   ├── components/           # Navbar, VideoPlayerModal, SponsorBanner, HeroBanner, etc.
-│   ├── views/                # HomeView, BrowseView, MovieDetailsView, AdminView, etc.
-│   ├── server/
-│   │   ├── db/               # Data store & initial seed models
-│   │   ├── routes/           # Auth, Movies, Series, Monetization, Admin API
-│   │   └── services/         # Cloudflare R2 & Video Processing services
-│   ├── test/                 # Automated unit tests
-│   ├── types.ts              # Global TypeScript types
-│   └── main.tsx              # React entry
-├── docs/                     # Operations and setup manuals
-├── .env.example              # Environment variables template
-├── package.json
-└── server.ts                 # Main Express server entry point
-```
+Cloudflare R2 credentials are only read by backend code. Uploads use the AWS S3-compatible API and signed PUT URLs. Missing R2 configuration disables upload operations; there is no mock production storage.
+
+## Media
+
+R2 stores source objects and does not transcode them. `VideoAsset`, `VideoRendition`, and `SubtitleTrack` record externally processed assets. The player accepts a direct source when present and uses HLS.js for an HLS master playlist; quality choices are shown only for actual HLS levels. A transcoding provider and subtitle delivery workflow are not configured by this repository.
+
+## Monetization and Rights
+
+ZIRA V1 is free to watch. Sponsor and affiliate campaign tracking records impressions and clicks for CTR reporting. Campaigns are not subscriptions, pay-per-view, or download purchases. Movie publication checks for valid current rights; pending or expired rights cannot be published. Series publication workflow is not yet implemented.
+
+## Current Scope Gaps
+
+The admin UI currently covers overview metrics, movies, series, rights, sponsors, Monetag settings, affiliates, analytics, and audit logs. Dedicated user administration, season/episode management, upload workflow, and promoted-content management are not complete. Password-reset delivery requires an email provider and is not configured. Google OAuth credentials are not consumed by the current app.

@@ -1,139 +1,66 @@
-# ZIRA — STREAM • WATCH • ENJOY
+# ZIRA
 
-> Your Ultimate Streaming Destination for Movies, Series, and Originals in Rwanda, Africa, and Worldwide.
+ZIRA is a free-to-watch movie and series platform. This repository preserves the existing React/Vite product and separates it from the Express/Prisma API so external credentials can be configured without exposing them to browser code.
 
-ZIRA V1 is a premium, mobile-first, zero-paywall streaming platform built with React, Vite, Express, TypeScript, Tailwind CSS, PostgreSQL / Prisma ORM, and Cloudflare R2 media storage.
+## Structure
 
----
-
-## 🌟 Key Features
-
-- **100% Free Streaming**: No subscriptions or paywalls in V1.
-- **Mobile-First Experience**: Optimized for touch controls, responsive video rails, and 320px+ mobile screens.
-- **Rwandan & African Showcase**: Dedicated spotlights for original Rwandan films, documentaries, and regional cinema.
-- **Custom HTML5 & HLS Video Player**: Multi-quality selector (`1080p`, `720p`, `480p`, `360p`, `Auto`), Data Saver mode, subtitle tracks (Kinyarwanda, English, French), and auto-saving watch progress.
-- **Monetization Engine**: Direct sponsor banners, affiliate campaigns, house ads, and promoted content managed via Admin Console.
-- **Rights Management**: Built-in legal rights audit system (`OWNED`, `LICENSED`, `PERMISSION_GRANTED`, `PUBLIC_DOMAIN`, `EXPIRED`) with strict publishing blocks for unverified content.
-- **Cloudflare R2 Media Storage**: Server-side pre-signed uploads and media key structure with local mock storage adapter fallback.
-- **PWA Ready**: Installable on Android and iOS devices.
-
----
-
-## 📂 Project Structure
-
-The project is organized into two main packages: `frontend` and `backend`.
-```
-zira/
-├── frontend/       # React/Vite Client Application
-├── backend/        # Node.js/Express API Server
-├── docs/           # Documentation
-└── README.md
+```text
+frontend/   React, Vite, TypeScript, Tailwind CSS, player and public/admin UI
+backend/    Express REST API, auth, Prisma schema/migrations, storage services and tests
+docs/       Architecture, local setup, deployment, database, R2 and admin guides
 ```
 
----
+The frontend is React/Vite, not Next.js. Its API origin is configured with `NEXT_PUBLIC_API_URL`; no API host is hardcoded in frontend application code. An unavailable API leaves the application shell visible and offers a retry action.
 
-## 🛠️ Local Development Setup
+## Local Development
 
-### Prerequisites
+Use Node.js 20 or newer, npm, and PostgreSQL. In separate terminals:
 
-- Node.js (v18+)
-- npm (v9+)
-- PostgreSQL
-
-### 1. Install Dependencies
-
-Install dependencies for both frontend and backend from the root directory.
-
-```bash
-npm install
-```
-
-### 2. Configure Environment
-
-**Backend:**
-
-From the project root, copy the backend environment example file. The backend runs on port `4000`.
-
-```bash
-cp backend/.env.example backend/.env
-```
-
-**Frontend:**
-
-The frontend requires no secret values and is pre-configured for local development to connect to the backend at `http://localhost:4000`. It runs on port `3000`.
-
-```bash
-cp frontend/.env.example frontend/.env.local
-```
-
-### 3. Setup Database
-
-Ensure your PostgreSQL server is running and the `DATABASE_URL` in `backend/.env` is correct. Then, run the Prisma migration to create the database schema.
-
-```bash
+```powershell
 cd backend
-npm run prisma:migrate
-cd ..
-```
-
-### 4. Run Development Servers
-
-Start both the frontend and backend servers concurrently from the root directory.
-
-```bash
+npm install
+Copy-Item .env.example .env
 npm run dev
 ```
 
-- Frontend will be available at: `http://localhost:3000`
-- Backend API will be available at: `http://localhost:4000`
+```powershell
+cd frontend
+npm install
+Copy-Item .env.example .env.local
+npm run dev
+```
 
----
+The API listens on port 4000 and Vite on port 3000. Set `DATABASE_URL`, `JWT_SECRET`, and `JWT_REFRESH_SECRET` in `backend/.env`; set `NEXT_PUBLIC_API_URL=http://localhost:4000` in `frontend/.env.local`. The two example files contain no credentials.
 
-## ⚙️ Required External Configuration
+Apply database migrations and optionally add fictional, unpublished demo catalog records from `backend/`:
 
-To run ZIRA, you will need to configure several external services and provide credentials in the `backend/.env` file.
+```bash
+npm run prisma:deploy
+npm run seed
+```
 
-1.  **PostgreSQL** (Required)
-    -   Provides: `DATABASE_URL`
+See [Local Setup](docs/LOCAL_SETUP.md), [PostgreSQL Setup](docs/POSTGRES_SETUP.md), and [Cloudflare R2 Setup](docs/CLOUDFLARE_R2_SETUP.md).
 
-2.  **JWT Secrets** (Required)
-    -   Locally generated secure random strings.
-    -   Provides: `JWT_SECRET`, `JWT_REFRESH_SECRET`
+## Integrations and Current Scope
 
-3.  **Cloudflare R2** (Required for media uploads)
-    -   Provides: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_BUCKET`, `CLOUDFLARE_R2_PUBLIC_URL`
+R2 upload, delete, and presigned-upload operations are backend-only and require all five `CLOUDFLARE_*` values. Missing values disable uploads; production never falls back to mock storage. R2 does not transcode video. Playback supports a direct source and actual HLS variants when supplied by an external processor.
 
-4.  **Google OAuth** (Optional)
-    -   Provides: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (for backend) and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (for frontend).
+Authentication uses bcrypt, short-lived JWT access tokens, rotated HttpOnly refresh sessions, and backend role checks. Sponsor and affiliate campaigns track impressions and clicks. The product has no subscriptions, pay-per-view, or paid downloads.
 
-5.  **Email Provider** (Optional)
-    -   For password resets and notifications.
-    -   Provides: `EMAIL_FROM`, `EMAIL_PROVIDER`, `EMAIL_API_KEY`
+Google OAuth credentials are not currently consumed. There is no Gemini integration or `GEMINI_API_KEY` requirement. Password-reset delivery requires an email provider and is not currently configured. Dedicated user administration, season/episode administration, upload workflow, and promoted-content administration remain incomplete; see [Admin Guide](docs/ADMIN_GUIDE.md).
 
----
+## Production
 
-## 📖 Complete Documentation
+Deploy `frontend/` to Vercel and `backend/` to Render as separate services. Configure `NEXT_PUBLIC_API_URL` on Vercel and secrets only in the backend environment. See [Deployment](docs/DEPLOYMENT.md) for exact settings and first-admin setup.
 
-Detailed operational guides are available in the `docs/` folder:
+## Guides
 
-- [Architecture Guide](docs/ARCHITECTURE.md)
-- [Local Development Setup](docs/LOCAL_SETUP.md)
-- [PostgreSQL Database Setup](docs/POSTGRES_SETUP.md)
-- [Cloudflare R2 Storage Setup](docs/CLOUDFLARE_R2_SETUP.md)
-- [Admin Console Guide](docs/ADMIN_GUIDE.md)
-- [Sponsor & Advertising Guide](docs/SPONSOR_GUIDE.md)
-- [Affiliate Placements Guide](docs/AFFILIATE_GUIDE.md)
-- [Monetization Strategy](docs/MONETIZATION.md)
-- [Deployment Guide (Vercel & Render)](docs/DEPLOYMENT.md)
-
----
-
-## 🔐 Credentials & Demo Accounts
-
-Instant one-click demo login is built into the Sign In dialog:
-- **Viewer Demo**: `viewer@zira.stream`
-- **Super Admin Demo**: `admin@zira.stream`
-
----
-
-© 2026 ZIRA Media Ltd.
+- [Architecture](docs/ARCHITECTURE.md)
+- [Local Setup](docs/LOCAL_SETUP.md)
+- [Deployment](docs/DEPLOYMENT.md)
+- [PostgreSQL](docs/POSTGRES_SETUP.md)
+- [Cloudflare R2](docs/CLOUDFLARE_R2_SETUP.md)
+- [Admin](docs/ADMIN_GUIDE.md)
+- [Sponsors](docs/SPONSOR_GUIDE.md)
+- [Affiliates](docs/AFFILIATE_GUIDE.md)
+- [Monetization](docs/MONETIZATION.md)

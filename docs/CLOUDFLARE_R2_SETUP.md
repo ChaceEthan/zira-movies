@@ -1,20 +1,17 @@
-# Cloudflare R2 Storage Setup Guide
+# Cloudflare R2
 
-To configure Cloudflare R2 object storage for video files, posters, and trailers:
+Create an R2 bucket and an API token with only the required object read/write permissions. Configure these values in `backend/.env` or the backend deployment's secret manager:
 
-1. Log into the Cloudflare Dashboard and navigate to **R2 Storage**.
-2. Create a new bucket named `zira-media`.
-3. Generate API tokens with **Object Read & Write** permissions.
-4. Set the following environment variables in `.env`:
-   ```env
-   CLOUDFLARE_ACCOUNT_ID="your_account_id"
-   CLOUDFLARE_R2_ACCESS_KEY_ID="your_access_key"
-   CLOUDFLARE_R2_SECRET_ACCESS_KEY="your_secret_key"
-   CLOUDFLARE_R2_BUCKET="zira-media"
-   CLOUDFLARE_R2_PUBLIC_URL="https://media.zira.stream"
-   ```
-5. Structure for uploads:
-   - `movies/{movieId}/poster/`
-   - `movies/{movieId}/backdrop/`
-   - `movies/{movieId}/source/`
-   - `series/{seriesId}/season-{season}/episode-{ep}/source/`
+```env
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_R2_ACCESS_KEY_ID=
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=
+CLOUDFLARE_R2_BUCKET=
+CLOUDFLARE_R2_PUBLIC_URL=
+```
+
+`CLOUDFLARE_R2_PUBLIC_URL` must be an HTTPS base URL configured for public delivery. Credentials are never sent to the browser. The API creates signed PUT URLs after editor/admin authorization. With incomplete settings, uploads return an explicit service-unavailable response; no mock asset is claimed to exist.
+
+Object keys are grouped under `movies/{id}/{poster|backdrop|source|subtitles}/`, `series/{id}/season-{n}/episode-{n}/{source|subtitles|thumbnail}/`, and `sponsors/{id}/campaigns/{id}/`. The bucket must allow the frontend origin to issue `PUT` requests with `Content-Type`; limit the allowed origins to the actual app domains.
+
+R2 stores the uploaded source bytes and does not transcode them. A separate video processing service must create renditions/HLS playlists and those resulting keys must be recorded in the database before the player can offer them.

@@ -1,7 +1,7 @@
-# Affiliate Placements Guide
+# Affiliate Campaigns
 
-Affiliate partners (e.g. electronics stores, telecom providers, broadband services) can place non-intrusive promotional banners on ZIRA.
+Affiliate partners and campaigns are administered in the dashboard. A campaign has a placement, schedule, destination URL, tracking URL, optional image, and partner. The public placement API records impressions; the click endpoint records active campaign clicks. The dashboard reports counts and CTR.
 
-1. Banners carry an explicit **FEATURED PARTNER** badge.
-2. Clicking the banner logs an affiliate click event before redirecting the user safely to the partner tracking URL.
-3. Admin Console tracks total affiliate click conversions.
+Conversions are entered with a partner-provided external reference and commission amount. They remain pending until an administrator verifies or rejects them. Only verified conversion revenue is included as verified revenue. This is not a payment or subscription feature.
+
+Review partner destinations and tracking behavior before enabling a campaign. Do not use forced redirects or overlays covering video controls.

@@ -1,18 +1,30 @@
-# Local Setup Guide
+# Local Development
 
-1. Clone or extract the repository.
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Copy environment settings:
-   ```bash
-   cp .env.example .env
-   ```
-4. Run the development server:
-   ```bash
-   npm run dev
-   ```
-5. Open your browser at `http://localhost:3000`.
+Requirements: Node.js 20 or newer, npm, and PostgreSQL for API-backed features.
 
-ZIRA runs immediately out-of-the-box using built-in Rwandan seed content.
+Install and configure each app in a separate terminal:
+
+```powershell
+cd backend
+npm install
+Copy-Item .env.example .env
+npm run dev
+```
+
+```powershell
+cd frontend
+npm install
+Copy-Item .env.example .env.local
+npm run dev
+```
+
+The frontend is served on port 3000 and the API on port 4000. Set `NEXT_PUBLIC_API_URL=http://localhost:4000` in `frontend/.env.local`. If the backend is unavailable, the frontend remains usable and shows a retry action; API-backed content requires a working database.
+
+Set `DATABASE_URL`, `JWT_SECRET`, and `JWT_REFRESH_SECRET` in `backend/.env`. Then, from `backend/`, apply migrations and optionally seed fictional draft records:
+
+```powershell
+npm run prisma:deploy
+npm run seed
+```
+
+The seed includes no real films, media files, accounts, or publishable rights. See [PostgreSQL setup](POSTGRES_SETUP.md) and [Admin guide](ADMIN_GUIDE.md) for database and first-admin steps.

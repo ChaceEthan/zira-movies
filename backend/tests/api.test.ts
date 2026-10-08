@@ -20,7 +20,7 @@ let server: ReturnType<ExpressApp['listen']>;
 let baseUrl: string;
 
 before(async () => {
-  app = (await import('../src/server')).app;
+  app = (await import('../src/server.js')).app;
   editorToken = jwt.sign({ role: 'EDITOR' }, process.env.JWT_SECRET!, { subject: 'test-editor' });
   adminToken = jwt.sign({ role: 'ADMIN' }, process.env.JWT_SECRET!, { subject: 'test-admin' });
   server = app.listen(0, '127.0.0.1');

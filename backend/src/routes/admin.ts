@@ -2,17 +2,19 @@ import { Router } from 'express';
 import prisma from '../../prisma/prisma';
 import { r2Service } from '../services/cloudflareR2';
 import { authenticateUser, requireRole, type AuthenticatedRequest } from '../auth';
+import { getInterpreterAssignments, type InterpreterAssignmentsMap } from '../services/platformState';
 
 const router = Router();
 router.use(authenticateUser, requireRole(['ADMIN', 'SUPER_ADMIN']));
 
-function formatAdminMovie(movie: any) {
+function formatAdminMovie(movie: any, assignments?: InterpreterAssignmentsMap) {
 	const genres = Array.isArray(movie.movieGenres)
 		? movie.movieGenres.map((entry: any) => entry.genre?.slug || entry.genreId).filter(Boolean)
 		: Array.isArray(movie.genres)
 			? movie.genres
 			: [];
 	const rights = movie.contentRights || movie.rights || undefined;
+	const assign = assignments?.movies[movie.slug] || assignments?.movies[movie.id];
 	return {
 		...movie,
 		posterUrl: movie.posterUrl || '',
@@ -23,30 +25,52 @@ function formatAdminMovie(movie: any) {
 		genres: genres.length > 0 ? genres : ['drama'],
 		cast: Array.isArray(movie.cast) ? movie.cast : [],
 		country: Array.isArray(rights?.territories) && rights.territories.length > 0 ? rights.territories.join(', ') : 'GLOBAL',
+		interpreterSlug: assign?.interpreterSlug || movie.interpreterSlug || undefined,
+		interpreterName: assign?.interpreterName || movie.interpreterName || undefined,
+		badgeIndicator: assign?.badgeIndicator ?? movie.badgeIndicator ?? null,
 		rights,
 	};
 }
 
-function formatAdminSeries(item: any) {
+function formatAdminSeries(item: any, assignments?: InterpreterAssignmentsMap) {
 	const genres = Array.isArray(item.seriesGenres)
 		? item.seriesGenres.map((entry: any) => entry.genre?.slug || entry.genreId).filter(Boolean)
 		: Array.isArray(item.genres)
 			? item.genres
 			: [];
+	const serAssign = assignments?.series[item.slug] || assignments?.series[item.id];
+	const seasons = Array.isArray(item.seasons)
+		? item.seasons.map((sea: any) => ({
+				...sea,
+				episodes: Array.isArray(sea.episodes)
+					? sea.episodes.map((ep: any) => {
+							const epAssign = assignments?.episodes[ep.id];
+							return {
+								...ep,
+								interpreterSlug: epAssign?.interpreterSlug || ep.interpreterSlug || serAssign?.interpreterSlug || undefined,
+								interpreterName: epAssign?.interpreterName || ep.interpreterName || serAssign?.interpreterName || undefined,
+							};
+					  })
+					: [],
+		  }))
+		: [];
 	return {
 		...item,
 		posterUrl: item.posterUrl || '',
 		backdropUrl: item.backdropUrl || item.posterUrl || '',
 		trailerUrl: item.trailerUrl || '',
 		genres: genres.length > 0 ? genres : ['drama'],
-		seasons: Array.isArray(item.seasons) ? item.seasons : [],
+		seasons,
+		interpreterSlug: serAssign?.interpreterSlug || item.interpreterSlug || undefined,
+		interpreterName: serAssign?.interpreterName || item.interpreterName || undefined,
+		badgeIndicator: serAssign?.badgeIndicator ?? item.badgeIndicator ?? null,
 		rights: item.contentRights || item.rights || undefined,
 	};
 }
 
 router.get('/catalog', async (_req, res, next) => {
 	try {
-		const [movies, series] = await Promise.all([
+		const [movies, series, assignments] = await Promise.all([
 			prisma.movie.findMany({
 				include: { movieGenres: { include: { genre: true } }, contentRights: true },
 				orderBy: [{ createdAt: 'desc' }],
@@ -62,10 +86,11 @@ router.get('/catalog', async (_req, res, next) => {
 				},
 				orderBy: [{ createdAt: 'desc' }],
 			}),
+			getInterpreterAssignments(),
 		]);
 		res.json({
-			movies: movies.map(formatAdminMovie),
-			series: series.map(formatAdminSeries),
+			movies: movies.map(m => formatAdminMovie(m, assignments)),
+			series: series.map(s => formatAdminSeries(s, assignments)),
 		});
 	} catch (error) {
 		next(error);
@@ -329,6 +354,53 @@ router.delete('/media/:assetId', async (req: AuthenticatedRequest, res, next) =>
 			},
 		});
 		res.json({ message: 'Media asset removed.' });
+	} catch (error) {
+		next(error);
+	}
+});
+
+// User Accounts & Roles Management
+router.get('/users', async (_req, res, next) => {
+	try {
+		const users = await prisma.user.findMany({
+			orderBy: { createdAt: 'desc' },
+			take: 200,
+		});
+		res.json({
+			users: users.map(({ passwordHash: _pw, ...u }: any) => u),
+		});
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.patch('/users/:userId/role', async (req: AuthenticatedRequest, res, next) => {
+	try {
+		const allowedRoles = ['USER', 'EDITOR', 'ADMIN', 'SUPER_ADMIN'] as const;
+		const role = req.body.role;
+		if (!allowedRoles.includes(role)) {
+			res.status(400).json({ error: 'Invalid user role.' });
+			return;
+		}
+		if (req.params.userId === req.auth?.userId && !['ADMIN', 'SUPER_ADMIN'].includes(role)) {
+			res.status(400).json({ error: 'You cannot demote your own administrator account.' });
+			return;
+		}
+		const updated = await prisma.user.update({
+			where: { id: req.params.userId },
+			data: { role },
+		});
+		await prisma.adminAuditLog.create({
+			data: {
+				adminId: req.auth!.userId,
+				action: 'UPDATE_USER_ROLE',
+				entityType: 'User',
+				entityId: updated.id,
+				metadata: JSON.stringify({ email: updated.email, role }),
+			},
+		});
+		const { passwordHash: _pw, ...safeUser } = updated as any;
+		res.json({ user: safeUser });
 	} catch (error) {
 		next(error);
 	}

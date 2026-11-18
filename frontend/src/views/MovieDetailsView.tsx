@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Film, Plus, Check, Star, Share2, Shield, Calendar, Clock, Globe, Award } from 'lucide-react';
+import { Play, Film, Plus, Check, Star, Share2, Shield, Calendar, Clock, Globe, Award, Mic } from 'lucide-react';
 import { Movie, ContentRights, SponsorBannerPlacement } from '../types';
 import { ContentRail } from '../components/ContentRail';
 import { SponsorBanner } from '../components/SponsorBanner';
@@ -14,6 +14,7 @@ interface MovieDetailsViewProps {
   onToggleMyList: (movie: Movie) => void;
   isInMyList: boolean;
   onSelectContent: (item: Movie) => void;
+  onSelectInterpreter?: (slug: string) => void;
   sponsorPlacement: SponsorBannerPlacement | null;
   onTrackSponsorClick: (campaignId: string, type: string) => void;
 }
@@ -27,6 +28,7 @@ export function MovieDetailsView({
   onToggleMyList,
   isInMyList,
   onSelectContent,
+  onSelectInterpreter,
   sponsorPlacement,
   onTrackSponsorClick,
 }: MovieDetailsViewProps) {
@@ -79,6 +81,20 @@ export function MovieDetailsView({
               <Clock className="w-3.5 h-3.5" />
               {movie.durationMinutes} mins
             </span>
+            {movie.interpreterName && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSelectInterpreter && movie.interpreterSlug
+                    ? onSelectInterpreter(movie.interpreterSlug)
+                    : undefined
+                }
+                className="px-3 py-1 rounded-full bg-amber-500/20 hover:bg-amber-400 hover:text-neutral-950 text-amber-300 border border-amber-500/40 font-extrabold flex items-center gap-1.5 transition-colors"
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>Umusobanuzi: {movie.interpreterName}</span>
+              </button>
+            )}
           </div>
 
           <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight">

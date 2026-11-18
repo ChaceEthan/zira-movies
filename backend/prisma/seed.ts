@@ -5,6 +5,9 @@ import {
   SEED_GENRES,
   ALL_SEED_MOVIES,
   SEED_SERIES,
+  SEED_INTERPRETERS,
+  DEFAULT_INTERPRETER_ASSIGNMENTS,
+  DEFAULT_VIP_CONFIG,
   LEGACY_REMOVED_MOVIE_SLUGS,
   LEGACY_REMOVED_SERIES_SLUGS,
 } from '../src/catalogSeedData';
@@ -24,6 +27,7 @@ export async function seedDatabase(): Promise<{
   moviesSeeded: number;
   seriesSeeded: number;
   genresSeeded: number;
+  interpretersSeeded: number;
   legacyRemoved: number;
 }> {
   // 1. Seed AdPlacement records idempotently
@@ -223,7 +227,42 @@ export async function seedDatabase(): Promise<{
     }
   }
 
-  // 6. Optional secure initial Admin provisioning via environment variables
+  // 6. Seed Interpreter Profiles (Abasobanuzi), Default Content Interpreter Assignments, and VIP Config
+  if (typeof (prisma as any).featureFlag?.upsert === 'function') {
+    for (const interp of SEED_INTERPRETERS) {
+      await (prisma as any).featureFlag.upsert({
+        where: { key: `interpreter:${interp.slug}` },
+        update: {},
+        create: {
+          key: `interpreter:${interp.slug}`,
+          description: JSON.stringify(interp),
+          enabled: interp.active,
+        },
+      });
+    }
+
+    await (prisma as any).featureFlag.upsert({
+      where: { key: 'interpreter_assignments' },
+      update: {},
+      create: {
+        key: 'interpreter_assignments',
+        description: JSON.stringify(DEFAULT_INTERPRETER_ASSIGNMENTS),
+        enabled: true,
+      },
+    });
+
+    await (prisma as any).featureFlag.upsert({
+      where: { key: 'vip_config' },
+      update: {},
+      create: {
+        key: 'vip_config',
+        description: JSON.stringify(DEFAULT_VIP_CONFIG),
+        enabled: DEFAULT_VIP_CONFIG.vipEnabled,
+      },
+    });
+  }
+
+  // 7. Optional secure initial Admin provisioning via environment variables
   const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const adminInitialPassword = process.env.ADMIN_INITIAL_PASSWORD;
   if (adminEmail && adminInitialPassword && adminInitialPassword.length >= 10) {
@@ -245,6 +284,7 @@ export async function seedDatabase(): Promise<{
     genresSeeded: SEED_GENRES.length,
     moviesSeeded: ALL_SEED_MOVIES.length,
     seriesSeeded: SEED_SERIES.length,
+    interpretersSeeded: SEED_INTERPRETERS.length,
     legacyRemoved,
   };
 }

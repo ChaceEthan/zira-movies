@@ -2,6 +2,11 @@ import { Router } from 'express';
 import prisma from '../../prisma/prisma';
 import { seedDatabase } from '../../prisma/seed';
 import { authenticateUser, requireRole, type AuthenticatedRequest } from '../auth';
+import {
+	getInterpreterAssignments,
+	assignContentInterpreter,
+	type InterpreterAssignmentsMap,
+} from '../services/platformState';
 
 const router = Router();
 const editors = ['EDITOR', 'ADMIN', 'SUPER_ADMIN'];
@@ -18,19 +23,38 @@ function slugify(value: string): string {
 		.slice(0, 90);
 }
 
-function formatSeries(item: any) {
+function formatSeries(item: any, assignments?: InterpreterAssignmentsMap) {
 	const genres = Array.isArray(item.seriesGenres)
 		? item.seriesGenres.map((entry: any) => entry.genre?.slug || entry.genreId).filter(Boolean)
 		: Array.isArray(item.genres)
 			? item.genres
 			: [];
+	const serAssign = assignments?.series[item.slug] || assignments?.series[item.id];
+	const seasons = Array.isArray(item.seasons)
+		? item.seasons.map((sea: any) => ({
+				...sea,
+				episodes: Array.isArray(sea.episodes)
+					? sea.episodes.map((ep: any) => {
+							const epAssign = assignments?.episodes[ep.id];
+							return {
+								...ep,
+								interpreterSlug: epAssign?.interpreterSlug || ep.interpreterSlug || serAssign?.interpreterSlug || undefined,
+								interpreterName: epAssign?.interpreterName || ep.interpreterName || serAssign?.interpreterName || undefined,
+							};
+					  })
+					: [],
+		  }))
+		: [];
 	return {
 		...item,
 		posterUrl: item.posterUrl || '',
 		backdropUrl: item.backdropUrl || item.posterUrl || '',
 		trailerUrl: item.trailerUrl || '',
 		genres: genres.length > 0 ? genres : ['drama'],
-		seasons: Array.isArray(item.seasons) ? item.seasons : [],
+		seasons,
+		interpreterSlug: serAssign?.interpreterSlug || item.interpreterSlug || undefined,
+		interpreterName: serAssign?.interpreterName || item.interpreterName || undefined,
+		badgeIndicator: serAssign?.badgeIndicator ?? item.badgeIndicator ?? null,
 		rights: item.contentRights || item.rights || undefined,
 	};
 }
@@ -83,7 +107,8 @@ router.get('/', async (_req, res, next) => {
 				});
 			}
 		}
-		res.json({ series: series.map(formatSeries) });
+		const assignments = await getInterpreterAssignments();
+		res.json({ series: series.map(s => formatSeries(s, assignments)) });
 	} catch (error) {
 		next(error);
 	}
@@ -106,7 +131,8 @@ router.get('/slug/:slug', async (req, res, next) => {
 			res.status(404).json({ error: 'Series not found.' });
 			return;
 		}
-		res.json({ series: formatSeries(item) });
+		const assignments = await getInterpreterAssignments();
+		res.json({ series: formatSeries(item, assignments) });
 	} catch (error) {
 		next(error);
 	}
@@ -173,10 +199,28 @@ router.post('/', authenticateUser, requireRole(editors), async (req: Authenticat
 			},
 			include: { seasons: { include: { episodes: true } }, seriesGenres: { include: { genre: true } }, contentRights: true },
 		});
+		if (
+			req.body.interpreterSlug !== undefined ||
+			req.body.interpreterName !== undefined ||
+			req.body.badgeIndicator !== undefined
+		) {
+			await assignContentInterpreter({
+				entityType: 'series',
+				key: series.slug,
+				interpreterSlug: typeof req.body.interpreterSlug === 'string' ? req.body.interpreterSlug : undefined,
+				interpreterName: typeof req.body.interpreterName === 'string' ? req.body.interpreterName : undefined,
+				badgeIndicator:
+					req.body.badgeIndicator === 'NEW' || req.body.badgeIndicator === 'UPDATED' || req.body.badgeIndicator === null
+						? req.body.badgeIndicator
+						: 'NEW',
+			});
+		}
+
+		const assignments = await getInterpreterAssignments();
 		await prisma.adminAuditLog.create({
 			data: { adminId: req.auth!.userId, action: 'CREATE_SERIES', entityType: 'Series', entityId: series.id },
 		});
-		res.status(201).json({ series: formatSeries(series) });
+		res.status(201).json({ series: formatSeries(series, assignments) });
 	} catch (error) {
 		next(error);
 	}
@@ -254,10 +298,29 @@ router.patch('/:seriesId', authenticateUser, requireRole(editors), async (req: A
 			data,
 			include: { seasons: { include: { episodes: true } }, seriesGenres: { include: { genre: true } }, contentRights: true },
 		});
+
+		if (
+			req.body.interpreterSlug !== undefined ||
+			req.body.interpreterName !== undefined ||
+			req.body.badgeIndicator !== undefined
+		) {
+			await assignContentInterpreter({
+				entityType: 'series',
+				key: updated.slug,
+				interpreterSlug: typeof req.body.interpreterSlug === 'string' ? req.body.interpreterSlug : undefined,
+				interpreterName: typeof req.body.interpreterName === 'string' ? req.body.interpreterName : undefined,
+				badgeIndicator:
+					req.body.badgeIndicator === 'NEW' || req.body.badgeIndicator === 'UPDATED' || req.body.badgeIndicator === null
+						? req.body.badgeIndicator
+						: undefined,
+			});
+		}
+
+		const assignments = await getInterpreterAssignments();
 		await prisma.adminAuditLog.create({
 			data: { adminId: req.auth!.userId, action: 'UPDATE_SERIES', entityType: 'Series', entityId: existing.id, metadata: JSON.stringify({ title: updated.title }) },
 		});
-		res.json({ series: formatSeries(updated) });
+		res.json({ series: formatSeries(updated, assignments) });
 	} catch (error) {
 		next(error);
 	}
@@ -372,6 +435,14 @@ router.post('/:seriesId/seasons/:seasonId/episodes', authenticateUser, requireRo
 				state,
 			},
 		});
+		if (req.body.interpreterSlug !== undefined || req.body.interpreterName !== undefined) {
+			await assignContentInterpreter({
+				entityType: 'episode',
+				key: episode.id,
+				interpreterSlug: typeof req.body.interpreterSlug === 'string' ? req.body.interpreterSlug : undefined,
+				interpreterName: typeof req.body.interpreterName === 'string' ? req.body.interpreterName : undefined,
+			});
+		}
 		await prisma.adminAuditLog.create({
 			data: { adminId: req.auth!.userId, action: 'CREATE_EPISODE', entityType: 'Episode', entityId: episode.id, metadata: JSON.stringify({ title }) },
 		});
@@ -396,6 +467,14 @@ router.patch('/episodes/:episodeId', authenticateUser, requireRole(editors), asy
 			where: { id: req.params.episodeId },
 			data,
 		});
+		if (req.body.interpreterSlug !== undefined || req.body.interpreterName !== undefined) {
+			await assignContentInterpreter({
+				entityType: 'episode',
+				key: episode.id,
+				interpreterSlug: typeof req.body.interpreterSlug === 'string' ? req.body.interpreterSlug : undefined,
+				interpreterName: typeof req.body.interpreterName === 'string' ? req.body.interpreterName : undefined,
+			});
+		}
 		await prisma.adminAuditLog.create({
 			data: { adminId: req.auth!.userId, action: 'UPDATE_EPISODE', entityType: 'Episode', entityId: episode.id },
 		});

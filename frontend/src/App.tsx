@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from './api';
-import { Navbar } from './components/Navbar';
+import { Navbar, NavView } from './components/Navbar';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { VideoPlayerModal } from './components/VideoPlayerModal';
 import { TrailerModal } from './components/TrailerModal';
@@ -12,9 +12,23 @@ import { SeriesDetailsView } from './views/SeriesDetailsView';
 import { MyListView } from './views/MyListView';
 import { ProfileView } from './views/ProfileView';
 import { AdminView } from './views/AdminView';
+import { InterpretersView } from './views/InterpretersView';
+import { VipView } from './views/VipView';
+import { MoreView } from './views/MoreView';
 import { MonetagAd } from './components/MonetagAd';
-import { Movie, Series, Episode, Genre, User, WatchProgress, WatchlistItem, SponsorBannerPlacement } from './types';
-import { Shield, Lock } from 'lucide-react';
+import {
+  Movie,
+  Series,
+  Episode,
+  Genre,
+  User,
+  WatchProgress,
+  WatchlistItem,
+  SponsorBannerPlacement,
+  Interpreter,
+  VipConfig,
+} from './types';
+import { Shield, Lock, Crown } from 'lucide-react';
 
 const LOCAL_WATCHLIST_KEY = 'zira_public_watchlist_v1';
 const LOCAL_PROGRESS_KEY = 'zira_public_watch_progress_v1';
@@ -117,6 +131,9 @@ export default function App() {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [series, setSeries] = useState<Series[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
+  const [interpreters, setInterpreters] = useState<Interpreter[]>([]);
+  const [vipConfig, setVipConfig] = useState<VipConfig | null>(null);
+  const [paymentGatewayConfigured, setPaymentGatewayConfigured] = useState<boolean>(false);
   const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [watchProgressList, setWatchProgressList] = useState<WatchProgress[]>(() =>
     readLocalJson<WatchProgress[]>(LOCAL_PROGRESS_KEY, []),
@@ -125,11 +142,13 @@ export default function App() {
     readLocalJson<WatchlistItem[]>(LOCAL_WATCHLIST_KEY, []),
   );
   const [sponsorPlacement, setSponsorPlacement] = useState<SponsorBannerPlacement | null>(null);
+  const [sponsorBottomBanner, setSponsorBottomBanner] = useState<SponsorBannerPlacement | null>(null);
 
   // Selected item state
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
+  const [selectedInterpreterSlug, setSelectedInterpreterSlug] = useState<string | null>(null);
 
   // Modals
   const [showPlayer, setShowPlayer] = useState(false);
@@ -166,17 +185,23 @@ export default function App() {
   const loadPublicData = useCallback(async () => {
     setCatalogStatus('loading');
     try {
-      const [movRes, serRes, spRes, genRes] = await Promise.all([
+      const [movRes, serRes, spRes, spBotRes, genRes, intRes, vipRes] = await Promise.all([
         apiFetch('/api/movies'),
         apiFetch('/api/series'),
         apiFetch('/api/monetization/placements?placement=HOME_BETWEEN_RAILS'),
+        apiFetch('/api/monetization/placements?placement=HOME_BOTTOM_BANNER').catch(() => null),
         apiFetch('/api/genres').catch(() => null),
+        apiFetch('/api/interpreters').catch(() => null),
+        apiFetch('/api/vip').catch(() => null),
       ]);
-      const [movData, serData, spData, genData] = await Promise.all([
+      const [movData, serData, spData, spBotData, genData, intData, vipData] = await Promise.all([
         parseApiJson(movRes),
         parseApiJson(serRes),
         parseApiJson(spRes),
+        spBotRes ? parseApiJson(spBotRes) : Promise.resolve(undefined),
         genRes ? parseApiJson(genRes) : Promise.resolve(undefined),
+        intRes ? parseApiJson(intRes) : Promise.resolve(undefined),
+        vipRes ? parseApiJson(vipRes) : Promise.resolve(undefined),
       ]);
 
       const loadedMovies: Movie[] = movRes.ok && movData && typeof movData === 'object' ? movData.movies || [] : [];
@@ -188,6 +213,15 @@ export default function App() {
 
       if (serRes.ok && serData && typeof serData === 'object') {
         setSeries(loadedSeries);
+      }
+
+      if (intRes?.ok && Array.isArray(intData?.interpreters)) {
+        setInterpreters(intData.interpreters);
+      }
+
+      if (vipRes?.ok && vipData?.vipConfig) {
+        setVipConfig(vipData.vipConfig);
+        setPaymentGatewayConfigured(Boolean(vipData.paymentGatewayConfigured));
       }
 
       if (genRes?.ok && Array.isArray(genData?.genres) && genData.genres.length > 0) {
@@ -210,6 +244,9 @@ export default function App() {
 
       if (spRes.ok && spData !== undefined) {
         setSponsorPlacement(spData);
+      }
+      if (spBotRes?.ok && spBotData !== undefined) {
+        setSponsorBottomBanner(spBotData);
       }
       setCatalogStatus(
         movRes.ok &&
@@ -288,9 +325,20 @@ export default function App() {
         setCurrentView('movies');
       } else if (cleanPath === '/series') {
         setCurrentView('series');
-      } else if (cleanPath === '/browse') {
+      } else if (cleanPath === '/browse' || cleanPath === '/search') {
         setCurrentView('browse');
-      } else if (cleanPath === '/my-list') {
+      } else if (cleanPath === '/interpreters') {
+        setSelectedInterpreterSlug(null);
+        setCurrentView('interpreters');
+      } else if (cleanPath.startsWith('/interpreter/')) {
+        const slug = decodeURIComponent(cleanPath.slice('/interpreter/'.length));
+        setSelectedInterpreterSlug(slug || null);
+        setCurrentView('interpreters');
+      } else if (cleanPath === '/vip') {
+        setCurrentView('vip');
+      } else if (cleanPath === '/more') {
+        setCurrentView('more');
+      } else if (cleanPath === '/my-list' || cleanPath === '/mylist') {
         setCurrentView('my-list');
       } else if (cleanPath === '/admin') {
         setCurrentView('admin');
@@ -369,15 +417,27 @@ export default function App() {
           url: `${origin}/series/${selectedSeries.slug}`,
         },
       });
+    } else if (currentView === 'interpreters') {
+      updateSeoMeta({
+        title: 'Abasobanuzi (Interpreters) — Browse Content by Interpreter | ZIRA Movies',
+        description: 'Explore ZIRA interpreter profiles (Abasobanuzi) and watch authorized movies and series organized by narrator.',
+        canonicalPath: selectedInterpreterSlug ? `/interpreter/${selectedInterpreterSlug}` : '/interpreters',
+      });
+    } else if (currentView === 'vip') {
+      updateSeoMeta({
+        title: 'Gura VIP — Optional VIP Membership & Benefits | ZIRA Movies',
+        description: 'Support ZIRA with an optional VIP membership for ad-free browsing, priority HD streaming, and VIP badges. All authorized movies remain 100% free to watch.',
+        canonicalPath: '/vip',
+      });
     } else if (currentView === 'movies') {
       updateSeoMeta({
-        title: 'Watch Free Movies Online — African, Rwandan & Global Cinema | ZIRA',
-        description: 'Browse and stream full-length movies across Action, Drama, Sci-Fi, Thriller, Documentary, and Rwandan & East African Cinema with no sign-in required.',
+        title: 'Filime — Watch Free Movies Online | ZIRA Movies',
+        description: 'Browse and stream full-length movies across Action, Drama, Comedy, Horror, Sci-Fi, and Rwandan & East African Cinema with no sign-in required.',
         canonicalPath: '/movies',
       });
     } else if (currentView === 'series') {
       updateSeoMeta({
-        title: 'Watch Free TV Series Online — Drama, Sci-Fi & East African Originals | ZIRA',
+        title: 'Series — Watch Free TV Series Online | ZIRA Series',
         description: 'Stream complete seasons and episodes of original African and international TV series free on ZIRA.',
         canonicalPath: '/series',
       });
@@ -401,10 +461,10 @@ export default function App() {
         },
       });
     }
-  }, [currentView, selectedMovie, selectedSeries]);
+  }, [currentView, selectedMovie, selectedSeries, selectedInterpreterSlug]);
 
   // Handle navigation
-  const handleNavigate = (view: string, slug?: string) => {
+  const handleNavigate = (view: NavView | string, slug?: string) => {
     if (view === 'movie' && slug) {
       const found = movies.find(m => m.slug === slug);
       if (found) {
@@ -425,17 +485,35 @@ export default function App() {
       }
     }
 
-    setCurrentView(view);
+    const normalizedView = view === 'mylist' ? 'my-list' : view === 'search' ? 'browse' : view;
+    if (normalizedView === 'interpreters' && !slug) {
+      setSelectedInterpreterSlug(null);
+    }
+
+    setCurrentView(normalizedView);
     const routeMap: Record<string, string> = {
       home: '/',
       browse: '/browse',
       movies: '/movies',
       series: '/series',
+      interpreters: '/interpreters',
+      vip: '/vip',
+      more: '/more',
       'my-list': '/my-list',
       admin: '/admin',
     };
-    if (routeMap[view] && window.location.pathname !== routeMap[view]) {
-      window.history.pushState({}, '', routeMap[view]);
+    if (routeMap[normalizedView] && window.location.pathname !== routeMap[normalizedView]) {
+      window.history.pushState({}, '', routeMap[normalizedView]);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSelectInterpreter = (slug: string | null) => {
+    setSelectedInterpreterSlug(slug);
+    setCurrentView('interpreters');
+    const targetPath = slug ? `/interpreter/${encodeURIComponent(slug)}` : '/interpreters';
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -617,6 +695,15 @@ export default function App() {
   const myListIds = watchlist.map(w => w.movieId || w.seriesId || '').filter(Boolean);
   const isAdmin = Boolean(user && ['ADMIN', 'SUPER_ADMIN', 'EDITOR'].includes(user.role));
 
+  const activeNavView: NavView =
+    currentView === 'my-list'
+      ? 'mylist'
+      : currentView === 'movie-details'
+        ? 'movies'
+        : currentView === 'series-details'
+          ? 'series'
+          : (currentView as NavView);
+
   let initialPlayerPos = 0;
   if (selectedMovie) {
     const wp = watchProgressList.find(w => w.movieId === selectedMovie.id);
@@ -630,10 +717,10 @@ export default function App() {
     <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans selection:bg-red-600 selection:text-white flex flex-col">
       {/* Top Navigation */}
       <Navbar
-        currentView={currentView}
+        activeView={activeNavView}
         onNavigate={handleNavigate}
         user={user}
-        onOpenAuth={() => setShowAuthModal(true)}
+        onOpenAuthModal={() => setShowAuthModal(true)}
         onLogout={handleLogout}
         onSearchChange={setSearchQuery}
         searchQuery={searchQuery}
@@ -659,17 +746,23 @@ export default function App() {
             )}
           </div>
         )}
+
         {currentView === 'home' && (
           <HomeView
             movies={movies}
             series={series}
+            interpreters={interpreters}
             watchProgressList={watchProgressList}
+            myListIds={myListIds}
             onSelectContent={handleSelectContent}
             onWatchContent={handleWatchContent}
-            onTrailerContent={handleTrailer}
+            onPlayTrailer={handleTrailer}
             onToggleMyList={handleToggleMyList}
-            myListIds={myListIds}
-            sponsorPlacement={sponsorPlacement}
+            onSelectInterpreter={slug => handleSelectInterpreter(slug)}
+            onNavigateInterpreters={() => handleSelectInterpreter(null)}
+            onNavigateVip={() => handleNavigate('vip')}
+            sponsorBetweenRails={sponsorPlacement}
+            sponsorBottomBanner={sponsorBottomBanner}
             onTrackSponsorClick={handleTrackSponsorClick}
           />
         )}
@@ -684,7 +777,43 @@ export default function App() {
             onSelectContent={handleSelectContent}
             onWatchContent={handleWatchContent}
             onToggleMyList={handleToggleMyList}
+            onSelectInterpreter={slug => handleSelectInterpreter(slug)}
             myListIds={myListIds}
+          />
+        )}
+
+        {currentView === 'interpreters' && (
+          <InterpretersView
+            interpreters={interpreters}
+            movies={movies}
+            series={series}
+            selectedSlug={selectedInterpreterSlug}
+            onSelectInterpreter={handleSelectInterpreter}
+            onSelectContent={handleSelectContent}
+            onWatchContent={handleWatchContent}
+            onToggleMyList={handleToggleMyList}
+            myListIds={myListIds}
+          />
+        )}
+
+        {currentView === 'vip' && (
+          <VipView
+            vipConfig={vipConfig}
+            paymentGatewayConfigured={paymentGatewayConfigured}
+            onContinueFreeStreaming={() => handleNavigate('home')}
+          />
+        )}
+
+        {currentView === 'more' && (
+          <MoreView
+            genres={genres}
+            user={user}
+            onNavigate={handleNavigate}
+            onSelectGenre={genreSlug => {
+              setSearchQuery(genreSlug);
+              handleNavigate('browse');
+            }}
+            onOpenAuthModal={() => setShowAuthModal(true)}
           />
         )}
 
@@ -698,6 +827,7 @@ export default function App() {
             onToggleMyList={() => void handleToggleMyList(selectedMovie)}
             isInMyList={myListIds.includes(selectedMovie.id)}
             onSelectContent={handleSelectContent}
+            onSelectInterpreter={slug => handleSelectInterpreter(slug)}
             sponsorPlacement={sponsorPlacement}
             onTrackSponsorClick={handleTrackSponsorClick}
           />
@@ -711,6 +841,7 @@ export default function App() {
             onTrailer={() => handleTrailer(selectedSeries)}
             onToggleMyList={() => void handleToggleMyList(selectedSeries)}
             isInMyList={myListIds.includes(selectedSeries.id)}
+            onSelectInterpreter={slug => handleSelectInterpreter(slug)}
           />
         )}
 
@@ -774,33 +905,30 @@ export default function App() {
         <div className="font-bold text-neutral-300 tracking-wider">ZIRA • STREAM • WATCH • ENJOY</div>
         <p>Free, legal streaming platform for Rwanda, East Africa, and global audiences.</p>
         <div className="flex flex-wrap justify-center items-center gap-4 text-[11px] text-neutral-400">
-          <button onClick={() => handleNavigate('home')} className="hover:text-white">Home</button>
-          <button onClick={() => handleNavigate('movies')} className="hover:text-white">Movies</button>
-          <button onClick={() => handleNavigate('series')} className="hover:text-white">TV Series</button>
-          <button onClick={() => handleNavigate('browse')} className="hover:text-white">Browse Catalog</button>
-          <button onClick={() => handleNavigate('my-list')} className="hover:text-white">My List</button>
-          <button
-            onClick={() => {
-              if (isAdmin) handleNavigate('admin');
-              else {
-                handleNavigate('admin');
-                setShowAuthModal(true);
-              }
-            }}
-            className="text-neutral-600 hover:text-neutral-400 flex items-center gap-1"
-          >
-            <Shield className="w-3 h-3" /> Admin Console
+          <button onClick={() => handleNavigate('home')} className="hover:text-white">Ahabanza</button>
+          <button onClick={() => handleNavigate('movies')} className="hover:text-white">Filime</button>
+          <button onClick={() => handleNavigate('series')} className="hover:text-white">Series</button>
+          <button onClick={() => handleSelectInterpreter(null)} className="hover:text-white">Abasobanuzi</button>
+          <button onClick={() => handleNavigate('vip')} className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1">
+            <Crown className="w-3 h-3" /> Gura VIP
           </button>
+          <button onClick={() => handleNavigate('more')} className="hover:text-white">Ibindi</button>
+          {isAdmin && (
+            <button
+              onClick={() => handleNavigate('admin')}
+              className="text-red-400 hover:text-red-300 flex items-center gap-1 font-semibold"
+            >
+              <Shield className="w-3 h-3" /> Admin Console
+            </button>
+          )}
         </div>
         <p className="text-[10px] text-neutral-600">© 2026 ZIRA Media Ltd. All rights reserved.</p>
       </footer>
 
       {/* Mobile Bottom Navigation */}
       <MobileBottomNav
-        currentView={currentView}
+        activeView={activeNavView}
         onNavigate={handleNavigate}
-        user={user}
-        onOpenAuth={() => setShowAuthModal(true)}
       />
 
       {/* Video Player Modal */}

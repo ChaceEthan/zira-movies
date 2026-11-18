@@ -1,186 +1,333 @@
 import React, { useState } from 'react';
-import { Search, Bell, Shield, Bookmark, Film, Tv, Sparkles, LogOut } from 'lucide-react';
-import { ZiraLogo } from './ZiraLogo';
+import {
+  Film,
+  Search,
+  User as UserIcon,
+  ShieldAlert,
+  Menu,
+  X,
+  LogOut,
+  Crown,
+  Mic,
+  Tv,
+  Home,
+  LayoutGrid,
+  Bookmark,
+} from 'lucide-react';
 import { User } from '../types';
 
+export type NavView =
+  | 'home'
+  | 'movies'
+  | 'series'
+  | 'interpreters'
+  | 'interpreter-details'
+  | 'vip'
+  | 'more'
+  | 'browse'
+  | 'mylist'
+  | 'search'
+  | 'profile'
+  | 'admin'
+  | 'movie-details'
+  | 'series-details';
+
 interface NavbarProps {
-  currentView: string;
-  onNavigate: (view: string, slug?: string) => void;
-  user: User | null;
-  onOpenAuth?: () => void;
-  onLogout: () => void;
-  onSearchChange: (query: string) => void;
+  activeView: NavView;
+  onNavigate: (view: NavView) => void;
   searchQuery: string;
+  onSearchChange: (q: string) => void;
+  user: User | null;
+  onOpenAuthModal: () => void;
+  onLogout: () => void;
 }
 
 export function Navbar({
-  currentView,
+  activeView,
   onNavigate,
-  user,
-  onLogout,
-  onSearchChange,
   searchQuery,
+  onSearchChange,
+  user,
+  onOpenAuthModal,
+  onLogout,
 }: NavbarProps) {
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-
-  const navItems = [
-    { id: 'home', label: 'Home', icon: Sparkles },
-    { id: 'browse', label: 'Browse', icon: Film },
-    { id: 'movies', label: 'Movies', icon: Film },
-    { id: 'series', label: 'Series', icon: Tv },
-    { id: 'my-list', label: 'My List', icon: Bookmark },
-  ];
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   const isAdmin = Boolean(user && ['ADMIN', 'SUPER_ADMIN', 'EDITOR'].includes(user.role));
 
-  return (
-    <header className="sticky top-0 z-40 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-800/60 px-4 lg:px-8 py-3 transition-all">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
-        {/* Left: Logo & Navigation */}
-        <div className="flex min-w-0 items-center gap-3 lg:gap-8">
-          <div onClick={() => onNavigate('home')} className="cursor-pointer">
-            <ZiraLogo size="md" showTagline={false} />
-          </div>
+  const navItems: { id: NavView; label: string; sublabel: string; icon: React.ComponentType<{ className?: string }> }[] = [
+    { id: 'home', label: 'Ahabanza', sublabel: 'Home', icon: Home },
+    { id: 'movies', label: 'Filime', sublabel: 'Movies', icon: Film },
+    { id: 'series', label: 'Series', sublabel: 'TV Series', icon: Tv },
+    { id: 'interpreters', label: 'Abasobanuzi', sublabel: 'Interpreters', icon: Mic },
+    { id: 'more', label: 'Ibindi', sublabel: 'More', icon: LayoutGrid },
+  ];
 
-          <nav className="hidden md:flex items-center gap-1 lg:gap-2">
+  const handleNavClick = (view: NavView) => {
+    onNavigate(view);
+    setMobileMenuOpen(false);
+  };
+
+  return (
+    <header className="sticky top-0 z-50 bg-[#07090e]/95 backdrop-blur-xl border-b border-neutral-800/80 transition-all duration-300">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
+        {/* Left: ZIRA Brand Logo + Desktop Nav */}
+        <div className="flex items-center gap-5 lg:gap-7">
+          <button
+            onClick={() => handleNavClick('home')}
+            className="flex items-center gap-2 text-left group focus:outline-none"
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-lg shadow-red-950/60 group-hover:scale-105 transition-transform border border-red-500/40">
+              <Film className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <span className="text-xl sm:text-2xl font-black tracking-tighter text-white">
+                ZIRA<span className="text-red-500">.</span>
+              </span>
+              <span className="hidden xl:inline-block ml-2 text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-neutral-900 text-amber-400 border border-amber-500/30">
+                AGASOBANUYE &amp; HD
+              </span>
+            </div>
+          </button>
+
+          {/* Desktop Navigation */}
+          <nav className="hidden md:flex items-center gap-1 lg:gap-1.5">
             {navItems.map(item => {
-              const active = currentView === item.id;
+              const isActive =
+                activeView === item.id ||
+                (item.id === 'interpreters' && activeView === 'interpreter-details');
               return (
                 <button
                   key={item.id}
-                  onClick={() => onNavigate(item.id)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                    active
-                      ? 'bg-neutral-800 text-white font-semibold shadow-sm'
-                      : 'text-neutral-300 hover:text-white hover:bg-neutral-900'
+                  onClick={() => handleNavClick(item.id)}
+                  className={`px-3 py-2 rounded-xl text-xs lg:text-sm font-bold transition-all flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-red-600/15 text-red-400 border border-red-500/30 shadow-sm'
+                      : 'text-neutral-300 hover:text-white hover:bg-neutral-900/80'
                   }`}
                 >
-                  {item.label}
+                  <span>{item.label}</span>
                 </button>
               );
             })}
-
-            <button
-              onClick={() => onNavigate('admin')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-all ${
-                currentView === 'admin'
-                  ? 'bg-red-950/80 text-red-400 border border-red-800/50'
-                  : isAdmin
-                    ? 'text-red-400/90 hover:bg-red-950/40 hover:text-red-300'
-                    : 'text-neutral-400 hover:bg-neutral-900 hover:text-white'
-              }`}
-            >
-              <Shield className={`w-4 h-4 ${currentView === 'admin' || isAdmin ? 'text-red-500' : 'text-neutral-400'}`} />
-              Admin
-            </button>
           </nav>
         </div>
 
-        {/* Right: Search, Free Badge, Notifications, Admin Session */}
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          {/* Free Badge */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-950/50 border border-red-800/40 text-red-400 text-xs font-bold tracking-wide">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-            FREE STREAMING
-          </div>
-
-          {/* Search Box */}
-          <div className="relative">
+        {/* Right: Search Icon/Bar, Prominent Gold "Gura VIP" Button, User Account */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Desktop Search Input */}
+          <div className="relative hidden sm:block w-44 lg:w-60">
+            <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search movies, series, cast..."
+              placeholder="Shakisha filime, umusobanuzi..."
               value={searchQuery}
-              onChange={(e) => {
+              onChange={e => {
                 onSearchChange(e.target.value);
-                if (currentView !== 'browse' && currentView !== 'movies' && currentView !== 'series') {
-                  onNavigate('browse');
+                if (activeView !== 'search' && e.target.value.trim().length > 0) {
+                  onNavigate('search');
                 }
               }}
-              className="w-36 sm:w-56 md:w-64 pl-9 pr-3 py-2 rounded-xl bg-neutral-900 border border-neutral-800 text-xs sm:text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600 focus:ring-1 focus:ring-red-600 transition-all"
+              onFocus={() => {
+                if (searchQuery.trim().length > 0) onNavigate('search');
+              }}
+              className="w-full bg-neutral-900/90 border border-neutral-800 focus:border-amber-500/70 rounded-full pl-9 pr-3 py-1.5 text-xs text-white placeholder-neutral-500 focus:outline-none transition-all"
             />
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400 pointer-events-none" />
           </div>
 
-          {/* Notifications button */}
-          <div className="relative">
+          {/* Mobile Search Icon Button */}
+          <button
+            onClick={() => {
+              setMobileSearchOpen(prev => !prev);
+              if (!mobileSearchOpen) onNavigate('search');
+            }}
+            aria-label="Search movies and interpreters"
+            className={`sm:hidden p-2 rounded-xl border transition-colors ${
+              activeView === 'search' || mobileSearchOpen
+                ? 'bg-neutral-800 text-amber-400 border-amber-500/40'
+                : 'bg-neutral-900/90 text-neutral-300 border-neutral-800 hover:text-white'
+            }`}
+          >
+            <Search className="w-4 h-4" />
+          </button>
+
+          {/* Prominent Gold/Yellow "Gura VIP" Button */}
+          <button
+            onClick={() => handleNavClick('vip')}
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl font-black text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-lg ${
+              activeView === 'vip'
+                ? 'bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 text-neutral-950 ring-2 ring-amber-300/60 shadow-amber-500/30 scale-[1.02]'
+                : 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-400 text-neutral-950 shadow-amber-500/20 hover:scale-105 active:scale-95'
+            }`}
+          >
+            <Crown className="w-4 h-4 fill-neutral-950 text-neutral-950 flex-shrink-0" />
+            <span>Gura VIP</span>
+          </button>
+
+          {/* Admin Console Button — Strictly visible ONLY to authenticated administrators */}
+          {isAdmin && (
             <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              aria-label="New Releases"
-              className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-900 transition-colors relative"
+              onClick={() => handleNavClick('admin')}
+              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                activeView === 'admin'
+                  ? 'bg-red-600 text-white border-red-500 shadow-lg shadow-red-950/50'
+                  : 'bg-neutral-900/90 text-red-400 border-red-900/50 hover:bg-red-950/60'
+              }`}
+              title="ZIRA Administrator Console"
             >
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500"></span>
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">Admin</span>
             </button>
-
-            {showNotifications && (
-              <div className="absolute right-0 mt-2 w-72 bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl p-4 z-50 text-xs">
-                <div className="font-bold text-neutral-200 mb-2 border-b border-neutral-800 pb-2 flex justify-between items-center">
-                  <span>Featured Releases</span>
-                  <span className="text-[10px] text-red-400 font-normal">Watch Free</span>
-                </div>
-                <div className="space-y-2.5">
-                  <div
-                    className="p-2 rounded bg-neutral-800/50 hover:bg-neutral-800 transition-colors cursor-pointer"
-                    onClick={() => { setShowNotifications(false); onNavigate('movie', 'kigali-horizon'); }}
-                  >
-                    <p className="font-semibold text-white">Kigali Horizon Now Streaming</p>
-                    <p className="text-neutral-400 mt-0.5">Watch the featured Rwandan sci-fi thriller instantly with no account required.</p>
-                  </div>
-                  <div
-                    className="p-2 rounded bg-neutral-800/50 hover:bg-neutral-800 transition-colors cursor-pointer"
-                    onClick={() => { setShowNotifications(false); onNavigate('series', 'the-kigali-chronicles'); }}
-                  >
-                    <p className="font-semibold text-white">The Kigali Chronicles Season 1</p>
-                    <p className="text-neutral-400 mt-0.5">All episodes available in HD with Kinyarwanda, English & French subtitles.</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Admin Menu (only shown when administrator is signed in) */}
-          {isAdmin && user && (
-            <div className="relative">
-              <button
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-red-950/60 border border-red-800/60 hover:border-red-600 text-xs font-bold text-red-300 transition-colors"
-              >
-                <Shield className="w-4 h-4 text-red-500" />
-                <span className="hidden sm:inline">{user.displayName}</span>
-              </button>
-
-              {showProfileMenu && (
-                <div className="absolute right-0 mt-2 w-56 bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl py-2 z-50 text-xs">
-                  <div className="px-4 py-2 border-b border-neutral-800">
-                    <p className="font-bold text-white text-sm">{user.displayName}</p>
-                    <p className="text-neutral-400 text-xs truncate">{user.email}</p>
-                    <div className="mt-1 inline-block px-2 py-0.5 rounded bg-red-950 text-red-300 font-mono text-[10px] border border-red-800/50">
-                      Role: {user.role}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => { setShowProfileMenu(false); onNavigate('admin'); }}
-                    className="w-full text-left px-4 py-2 text-red-400 hover:bg-red-950/40 flex items-center gap-2 font-semibold"
-                  >
-                    <Shield className="w-4 h-4" /> Admin Console
-                  </button>
-
-                  <div className="border-t border-neutral-800 mt-1 pt-1">
-                    <button
-                      onClick={() => { setShowProfileMenu(false); onLogout(); }}
-                      className="w-full text-left px-4 py-2 text-neutral-400 hover:text-red-400 hover:bg-neutral-800 flex items-center gap-2"
-                    >
-                      <LogOut className="w-4 h-4" /> Sign Out Admin
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
           )}
+
+          {/* User Profile / Sign In */}
+          {user ? (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => handleNavClick('profile')}
+                className="flex items-center gap-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-neutral-200 transition-colors"
+                title={user.displayName}
+              >
+                <div className="w-6 h-6 rounded-full bg-red-600 flex items-center justify-center text-[11px] font-bold text-white">
+                  {user.displayName.charAt(0).toUpperCase()}
+                </div>
+                <span className="hidden xl:inline truncate max-w-[96px]">{user.displayName}</span>
+              </button>
+              <button
+                onClick={onLogout}
+                title="Sign Out"
+                className="hidden sm:flex p-2 rounded-xl bg-neutral-900 hover:bg-red-950/50 text-neutral-400 hover:text-red-400 border border-neutral-800 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={onOpenAuthModal}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-200 font-bold text-xs border border-neutral-800 transition-all"
+            >
+              <UserIcon className="w-3.5 h-3.5 text-neutral-400" />
+              <span>Injira</span>
+            </button>
+          )}
+
+          {/* Mobile Drawer Toggle */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Open menu"
+            className="md:hidden p-2 rounded-xl bg-neutral-900 text-neutral-300 hover:text-white border border-neutral-800"
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
         </div>
       </div>
+
+      {/* Expandable Mobile Search Bar */}
+      {mobileSearchOpen && (
+        <div className="sm:hidden px-3 pb-3 pt-1 bg-[#07090e] border-b border-neutral-800/80">
+          <div className="relative">
+            <Search className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              autoFocus
+              placeholder="Shakisha filime, series cyangwa umusobanuzi..."
+              value={searchQuery}
+              onChange={e => {
+                onSearchChange(e.target.value);
+                if (activeView !== 'search') onNavigate('search');
+              }}
+              className="w-full bg-neutral-900 border border-neutral-700 focus:border-amber-400 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-neutral-500 focus:outline-none"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Drawer Menu */}
+      {mobileMenuOpen && (
+        <div className="md:hidden bg-[#090d14] border-b border-neutral-800 px-4 pt-3 pb-6 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            {navItems.map(item => {
+              const Icon = item.icon;
+              const isActive = activeView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleNavClick(item.id)}
+                  className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-left text-xs font-bold border transition-all ${
+                    isActive
+                      ? 'bg-red-600/20 text-red-400 border-red-500/40'
+                      : 'bg-neutral-900/70 text-neutral-300 border-neutral-800 hover:text-white'
+                  }`}
+                >
+                  <Icon className="w-4 h-4 text-red-500 flex-shrink-0" />
+                  <div>
+                    <div className="leading-tight">{item.label}</div>
+                    <div className="text-[10px] text-neutral-500 font-normal">{item.sublabel}</div>
+                  </div>
+                </button>
+              );
+            })}
+            <button
+              onClick={() => handleNavClick('mylist')}
+              className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-left text-xs font-bold border transition-all ${
+                activeView === 'mylist'
+                  ? 'bg-red-600/20 text-red-400 border-red-500/40'
+                  : 'bg-neutral-900/70 text-neutral-300 border-neutral-800 hover:text-white'
+              }`}
+            >
+              <Bookmark className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              <div>
+                <div className="leading-tight">Urutonde Rwanjye</div>
+                <div className="text-[10px] text-neutral-500 font-normal">Watchlist</div>
+              </div>
+            </button>
+          </div>
+
+          <div className="pt-2 border-t border-neutral-800 flex items-center justify-between gap-2">
+            {user ? (
+              <>
+                <button
+                  onClick={() => handleNavClick('profile')}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-neutral-900 text-neutral-200 text-xs font-bold border border-neutral-800 text-left flex items-center gap-2"
+                >
+                  <UserIcon className="w-4 h-4 text-red-400" />
+                  <span className="truncate">{user.displayName}</span>
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => handleNavClick('admin')}
+                    className="py-2.5 px-3 rounded-xl bg-red-950/60 text-red-300 text-xs font-bold border border-red-800/50 flex items-center gap-1.5"
+                  >
+                    <ShieldAlert className="w-4 h-4" />
+                    <span>Admin</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    onLogout();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-neutral-900 text-neutral-400 hover:text-red-400 text-xs font-bold border border-neutral-800"
+                >
+                  ohoka
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => {
+                  onOpenAuthModal();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white font-bold text-xs border border-neutral-700 flex items-center justify-center gap-2"
+              >
+                <UserIcon className="w-4 h-4 text-amber-400" />
+                <span>Injira / Iyandikishe (Optional Sign In)</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }

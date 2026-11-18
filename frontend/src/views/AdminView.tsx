@@ -3,9 +3,21 @@ import { apiFetch } from '../api';
 import {
   Shield, Film, Tv, DollarSign, BarChart3,
   Plus, X, AlertTriangle, ShieldCheck, Upload,
-  Edit, Trash2, RefreshCw, FileText, ExternalLink, Sparkles, Star, Layers, HardDrive
+  Edit, Trash2, RefreshCw, FileText, ExternalLink, Sparkles, Star, Layers, HardDrive,
+  Mic, Crown, Users as UsersIcon
 } from 'lucide-react';
-import { Movie, Series, Episode, AdminMetrics, Sponsor, SponsorCampaign, AdminAuditLog } from '../types';
+import {
+  Movie,
+  Series,
+  Episode,
+  AdminMetrics,
+  Sponsor,
+  SponsorCampaign,
+  AdminAuditLog,
+  Interpreter,
+  VipConfig,
+  User,
+} from '../types';
 
 interface AdminViewProps {
   token: string;
@@ -30,10 +42,27 @@ const AVAILABLE_GENRES = [
 ];
 
 export function AdminView({ token, movies, series, onRefreshData }: AdminViewProps) {
-  const [activeTab, setActiveTab] = useState<'metrics' | 'movies' | 'series' | 'media' | 'rights' | 'sponsors' | 'monetag' | 'affiliate' | 'analytics' | 'audit'>('metrics');
+  const [activeTab, setActiveTab] = useState<
+    | 'metrics'
+    | 'movies'
+    | 'series'
+    | 'interpreters'
+    | 'vip'
+    | 'users'
+    | 'media'
+    | 'rights'
+    | 'sponsors'
+    | 'monetag'
+    | 'affiliate'
+    | 'analytics'
+    | 'audit'
+  >('metrics');
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [adminMovies, setAdminMovies] = useState<Movie[]>(movies);
   const [adminSeries, setAdminSeries] = useState<Series[]>(series);
+  const [interpretersList, setInterpretersList] = useState<Interpreter[]>([]);
+  const [vipConfig, setVipConfig] = useState<VipConfig | null>(null);
+  const [usersList, setUsersList] = useState<User[]>([]);
   const [mediaAssets, setMediaAssets] = useState<any[]>([]);
   const [rightsList, setRightsList] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
@@ -45,6 +74,21 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   const [analytics, setAnalytics] = useState<any>(null);
   const [paidInputs, setPaidInputs] = useState<Record<string, string>>({});
   const [statusMsg, setStatusMsg] = useState('');
+
+  // Interpreter management state
+  const [editingInterpreterSlug, setEditingInterpreterSlug] = useState<string | null>(null);
+  const [interpreterDraft, setInterpreterDraft] = useState({
+    displayName: '',
+    slug: '',
+    photoUrl: '',
+    biography: '',
+    specialtyGenres: 'action, drama',
+    youtubeUrl: '',
+    instagramUrl: '',
+    isFeatured: true,
+    isExampleProfile: false,
+    active: true,
+  });
 
   // Movie filter & modal states
   const [movieFilterState, setMovieFilterState] = useState<string>('ALL');
@@ -67,6 +111,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     backdropUrl: '',
     trailerUrl: '',
     videoUrl: '',
+    interpreterSlug: '',
+    badgeIndicator: 'NEW' as 'NEW' | 'UPDATED' | '',
+    narrationPermissionOnly: false,
     rightsStatus: 'OWNED',
     rightsHolder: 'ZIRA Media Platform',
     licenseReference: '',
@@ -93,6 +140,8 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     posterUrl: '',
     backdropUrl: '',
     trailerUrl: '',
+    interpreterSlug: '',
+    badgeIndicator: 'NEW' as 'NEW' | 'UPDATED' | '',
     rightsStatus: 'OWNED',
     rightsHolder: 'ZIRA Media Platform',
     state: 'PUBLISHED',
@@ -294,6 +343,48 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     }
   }, [token]);
 
+  const fetchInterpretersData = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/interpreters?includeInactive=true', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setInterpretersList(data.interpreters || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token]);
+
+  const fetchVipData = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/vip', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVipConfig(data.config || null);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token]);
+
+  const fetchUsersData = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/admin/users', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUsersList(data.users || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token]);
+
   useEffect(() => {
     void fetchAdminCatalog();
     void fetchAdminMetrics();
@@ -303,6 +394,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     void fetchMonetagData();
     void fetchAffiliateData();
     void fetchMonetizationAnalytics();
+    void fetchInterpretersData();
+    void fetchVipData();
+    void fetchUsersData();
   }, [
     token,
     fetchAdminCatalog,
@@ -313,10 +407,21 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     fetchMonetagData,
     fetchAffiliateData,
     fetchMonetizationAnalytics,
+    fetchInterpretersData,
+    fetchVipData,
+    fetchUsersData,
   ]);
 
   const refreshAll = async () => {
-    await Promise.all([fetchAdminCatalog(), fetchAdminMetrics(), fetchRightsData(), fetchMediaAssets()]);
+    await Promise.all([
+      fetchAdminCatalog(),
+      fetchAdminMetrics(),
+      fetchRightsData(),
+      fetchMediaAssets(),
+      fetchInterpretersData(),
+      fetchVipData(),
+      fetchUsersData(),
+    ]);
     onRefreshData();
   };
 
@@ -456,6 +561,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       backdropUrl: '',
       trailerUrl: '',
       videoUrl: '',
+      interpreterSlug: '',
+      badgeIndicator: 'NEW',
+      narrationPermissionOnly: false,
       rightsStatus: 'OWNED',
       rightsHolder: 'ZIRA Media Platform',
       licenseReference: '',
@@ -488,6 +596,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       backdropUrl: m.backdropUrl || '',
       trailerUrl: m.trailerUrl || '',
       videoUrl: m.videoUrl || '',
+      interpreterSlug: m.interpreterSlug || '',
+      badgeIndicator: (m.badgeIndicator as any) || '',
+      narrationPermissionOnly: false,
       rightsStatus: m.rights?.rightsStatus || 'OWNED',
       rightsHolder: m.rights?.rightsHolder || 'ZIRA Media Platform',
       licenseReference: m.rights?.licenseReference || '',
@@ -527,6 +638,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
           durationMinutes: Number(movieDraft.durationMinutes),
           territories: territories.length > 0 ? territories : ['GLOBAL', 'RW'],
           subtitlesAvailable: subtitlesAvailable.length > 0 ? subtitlesAvailable : ['en'],
+          interpreterSlug: movieDraft.interpreterSlug || null,
+          badgeIndicator: movieDraft.badgeIndicator || null,
+          narrationPermissionOnly: movieDraft.narrationPermissionOnly,
           licenseReference: movieDraft.licenseReference.trim() || null,
           rightsEndDate: movieDraft.rightsEndDate ? new Date(movieDraft.rightsEndDate).toISOString() : null,
         }),
@@ -600,6 +714,8 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       posterUrl: '',
       backdropUrl: '',
       trailerUrl: '',
+      interpreterSlug: '',
+      badgeIndicator: 'NEW',
       rightsStatus: 'OWNED',
       rightsHolder: 'ZIRA Media Platform',
       state: 'PUBLISHED',
@@ -623,6 +739,8 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       posterUrl: s.posterUrl || '',
       backdropUrl: s.backdropUrl || '',
       trailerUrl: s.trailerUrl || '',
+      interpreterSlug: s.interpreterSlug || '',
+      badgeIndicator: (s.badgeIndicator as any) || '',
       rightsStatus: s.rights?.rightsStatus || 'OWNED',
       rightsHolder: s.rights?.rightsHolder || 'ZIRA Media Platform',
       state: s.state || 'PUBLISHED',
@@ -1117,6 +1235,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
           { id: 'metrics', label: 'Dashboard & Stats', icon: BarChart3 },
           { id: 'movies', label: `Movies (${adminMovies.length})`, icon: Film },
           { id: 'series', label: `Series (${adminSeries.length})`, icon: Tv },
+          { id: 'interpreters', label: `Abasobanuzi (${interpretersList.length})`, icon: Mic },
+          { id: 'vip', label: 'Gura VIP & Benefits', icon: Crown },
+          { id: 'users', label: `Users (${usersList.length})`, icon: UsersIcon },
           { id: 'media', label: 'Media & R2 Storage', icon: HardDrive },
           { id: 'rights', label: 'Rights Management', icon: ShieldCheck },
           { id: 'monetag', label: 'Monetag Ads', icon: Sparkles },
@@ -1968,6 +2089,463 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         </div>
       )}
 
+      {/* TAB: ABASOBANUZI (INTERPRETERS MANAGEMENT) */}
+      {activeTab === 'interpreters' && (
+        <div className="space-y-6 lg:col-start-2 lg:row-start-3 text-xs">
+          <div className="bg-neutral-900/60 p-6 rounded-2xl border border-neutral-800 space-y-4">
+            <div className="flex flex-wrap justify-between items-center gap-2">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Mic className="w-5 h-5 text-amber-400" /> Abasobanuzi (Interpreter Profiles Management)
+                </h2>
+                <p className="text-xs text-neutral-400">
+                  Create and manage interpreter profiles, biographies, social links, and featured status.
+                </p>
+              </div>
+            </div>
+
+            <form
+              onSubmit={async e => {
+                e.preventDefault();
+                if (!interpreterDraft.displayName.trim()) return;
+                const endpoint = editingInterpreterSlug
+                  ? `/api/interpreters/${editingInterpreterSlug}`
+                  : '/api/interpreters';
+                const method = editingInterpreterSlug ? 'PATCH' : 'POST';
+                const res = await apiFetch(endpoint, {
+                  method,
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    displayName: interpreterDraft.displayName.trim(),
+                    slug: interpreterDraft.slug.trim() || undefined,
+                    photoUrl: interpreterDraft.photoUrl.trim() || undefined,
+                    biography: interpreterDraft.biography.trim() || undefined,
+                    specialtyGenres: interpreterDraft.specialtyGenres
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean),
+                    socialLinks: {
+                      youtube: interpreterDraft.youtubeUrl.trim() || undefined,
+                      instagram: interpreterDraft.instagramUrl.trim() || undefined,
+                    },
+                    isFeatured: interpreterDraft.isFeatured,
+                    isExampleProfile: interpreterDraft.isExampleProfile,
+                    active: interpreterDraft.active,
+                  }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                  setStatusMsg(data.error || 'Could not save interpreter.');
+                  return;
+                }
+                setEditingInterpreterSlug(null);
+                setInterpreterDraft({
+                  displayName: '',
+                  slug: '',
+                  photoUrl: '',
+                  biography: '',
+                  specialtyGenres: 'action, drama',
+                  youtubeUrl: '',
+                  instagramUrl: '',
+                  isFeatured: true,
+                  isExampleProfile: false,
+                  active: true,
+                });
+                await refreshAll();
+                setStatusMsg(
+                  editingInterpreterSlug
+                    ? `Updated interpreter "${data.interpreter?.displayName}".`
+                    : `Created interpreter "${data.interpreter?.displayName}".`,
+                );
+              }}
+              className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-neutral-800"
+            >
+              <div>
+                <label className="block text-neutral-300 mb-1">Display Name *</label>
+                <input
+                  required
+                  type="text"
+                  value={interpreterDraft.displayName}
+                  onChange={e => setInterpreterDraft(p => ({ ...p, displayName: e.target.value }))}
+                  placeholder="e.g. Rocky"
+                  className="w-full px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-neutral-300 mb-1">Slug (Optional)</label>
+                <input
+                  type="text"
+                  value={interpreterDraft.slug}
+                  onChange={e => setInterpreterDraft(p => ({ ...p, slug: e.target.value }))}
+                  placeholder="e.g. rocky"
+                  className="w-full px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-neutral-300 mb-1">Profile Photo URL (Optional)</label>
+                <input
+                  type="text"
+                  value={interpreterDraft.photoUrl}
+                  onChange={e => setInterpreterDraft(p => ({ ...p, photoUrl: e.target.value }))}
+                  placeholder="https://... or auto-generated avatar"
+                  className="w-full px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-neutral-300 mb-1">Biography</label>
+                <input
+                  type="text"
+                  value={interpreterDraft.biography}
+                  onChange={e => setInterpreterDraft(p => ({ ...p, biography: e.target.value }))}
+                  placeholder="Short biography and narration style..."
+                  className="w-full px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-neutral-300 mb-1">Specialty Genres (comma-separated)</label>
+                <input
+                  type="text"
+                  value={interpreterDraft.specialtyGenres}
+                  onChange={e => setInterpreterDraft(p => ({ ...p, specialtyGenres: e.target.value }))}
+                  placeholder="action, drama, fantasy"
+                  className="w-full px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white"
+                />
+              </div>
+              <div className="sm:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="flex items-center gap-2 text-neutral-300">
+                    <input
+                      type="checkbox"
+                      checked={interpreterDraft.isFeatured}
+                      onChange={e => setInterpreterDraft(p => ({ ...p, isFeatured: e.target.checked }))}
+                    />
+                    Featured Interpreter
+                  </label>
+                  <label className="flex items-center gap-2 text-neutral-300">
+                    <input
+                      type="checkbox"
+                      checked={interpreterDraft.active}
+                      onChange={e => setInterpreterDraft(p => ({ ...p, active: e.target.checked }))}
+                    />
+                    Active on Public Catalog
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  {editingInterpreterSlug && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingInterpreterSlug(null)}
+                      className="px-3 py-2 rounded-lg bg-neutral-800 text-neutral-300"
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black"
+                  >
+                    {editingInterpreterSlug ? 'Update Interpreter' : '+ Save Interpreter'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-neutral-800">
+            <table className="w-full min-w-[680px] bg-neutral-900/60 text-left text-xs">
+              <thead className="bg-neutral-950 text-neutral-400 uppercase text-[10px] border-b border-neutral-800">
+                <tr>
+                  <th className="p-3">Interpreter</th>
+                  <th className="p-3">Genres</th>
+                  <th className="p-3">Movies / Series</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
+                {interpretersList.map(interp => (
+                  <tr key={interp.id}>
+                    <td className="p-3 flex items-center gap-3">
+                      <img src={interp.photoUrl} alt={interp.displayName} className="w-10 h-10 rounded-full object-cover border border-amber-500/40" />
+                      <div>
+                        <div className="font-bold text-white">{interp.displayName}</div>
+                        <div className="text-[10px] font-mono text-neutral-500">{interp.slug}</div>
+                      </div>
+                    </td>
+                    <td className="p-3">{interp.specialtyGenres?.join(', ')}</td>
+                    <td className="p-3">
+                      <span className="font-bold text-amber-400">{interp.movieCount ?? 0} Movies</span> ·{' '}
+                      <span className="font-bold text-indigo-400">{interp.seriesCount ?? 0} Series</span>
+                    </td>
+                    <td className="p-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          interp.active ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-neutral-800 text-neutral-400'
+                        }`}
+                      >
+                        {interp.active ? 'ACTIVE' : 'HIDDEN'}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingInterpreterSlug(interp.slug);
+                            setInterpreterDraft({
+                              displayName: interp.displayName,
+                              slug: interp.slug,
+                              photoUrl: interp.photoUrl,
+                              biography: interp.biography,
+                              specialtyGenres: interp.specialtyGenres?.join(', ') || 'action, drama',
+                              youtubeUrl: interp.socialLinks?.youtube || '',
+                              instagramUrl: interp.socialLinks?.instagram || '',
+                              isFeatured: interp.isFeatured,
+                              isExampleProfile: interp.isExampleProfile,
+                              active: interp.active,
+                            });
+                          }}
+                          className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: VIP PLANS & BENEFITS CONFIGURATION */}
+      {activeTab === 'vip' && vipConfig && (
+        <div className="space-y-6 lg:col-start-2 lg:row-start-3 text-xs">
+          <div className="bg-neutral-900/60 p-6 rounded-2xl border border-neutral-800 space-y-4">
+            <div className="flex flex-wrap justify-between items-center gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Crown className="w-5 h-5 text-amber-400" /> Gura VIP — Plans &amp; Configurable Benefits
+                </h2>
+                <p className="text-xs text-neutral-400">
+                  Enable or disable individual VIP benefits, configure plan prices/durations, and control VIP ad reduction. Regular users always retain free streaming access.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  const res = await apiFetch('/api/vip/config', {
+                    method: 'PATCH',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify(vipConfig),
+                  });
+                  const data = await res.json();
+                  if (res.ok) {
+                    setVipConfig(data.config);
+                    setStatusMsg('VIP plans and benefits configuration saved.');
+                    onRefreshData();
+                  } else {
+                    setStatusMsg(data.error || 'Could not save VIP config.');
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black text-xs"
+              >
+                Save VIP Configuration
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-6 pt-3 border-t border-neutral-800">
+              <label className="flex items-center gap-2 text-neutral-200 font-semibold">
+                <input
+                  type="checkbox"
+                  checked={vipConfig.adFreeForVip}
+                  onChange={e => setVipConfig({ ...vipConfig, adFreeForVip: e.target.checked })}
+                />
+                Ad-Free Experience for VIP Members
+              </label>
+              <label className="flex items-center gap-2 text-neutral-200 font-semibold">
+                <input
+                  type="checkbox"
+                  checked={vipConfig.reducedAdsForVip}
+                  onChange={e => setVipConfig({ ...vipConfig, reducedAdsForVip: e.target.checked })}
+                />
+                Reduced Advertising Option for VIP Members
+              </label>
+            </div>
+
+            {/* Individual VIP Benefits Toggles */}
+            <div className="space-y-2 pt-3 border-t border-neutral-800">
+              <h3 className="font-bold text-white">Configurable VIP Benefits</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {vipConfig.benefits.map((benefit, idx) => (
+                  <div key={benefit.id} className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 flex items-start justify-between gap-3">
+                    <div className="space-y-1 flex-1">
+                      <input
+                        type="text"
+                        value={benefit.title}
+                        onChange={e => {
+                          const next = [...vipConfig.benefits];
+                          next[idx] = { ...benefit, title: e.target.value };
+                          setVipConfig({ ...vipConfig, benefits: next });
+                        }}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 font-bold text-white"
+                      />
+                      <p className="text-[11px] text-neutral-400">{benefit.description}</p>
+                    </div>
+                    <label className="flex items-center gap-1.5 text-amber-400 font-bold shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={benefit.enabled}
+                        onChange={e => {
+                          const next = [...vipConfig.benefits];
+                          next[idx] = { ...benefit, enabled: e.target.checked };
+                          setVipConfig({ ...vipConfig, benefits: next });
+                        }}
+                      />
+                      Enabled
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* VIP Plans Editor */}
+            <div className="space-y-2 pt-3 border-t border-neutral-800">
+              <h3 className="font-bold text-white">VIP Plan Prices &amp; Durations</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {vipConfig.plans.map((plan, idx) => (
+                  <div key={plan.id} className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-amber-400">{plan.name}</span>
+                      <label className="flex items-center gap-1 text-[11px] text-neutral-300">
+                        <input
+                          type="checkbox"
+                          checked={plan.active}
+                          onChange={e => {
+                            const next = [...vipConfig.plans];
+                            next[idx] = { ...plan, active: e.target.checked };
+                            setVipConfig({ ...vipConfig, plans: next });
+                          }}
+                        />
+                        Active
+                      </label>
+                    </div>
+                    <div>
+                      <label className="block text-neutral-400 text-[10px]">Plan Name (Kinyarwanda)</label>
+                      <input
+                        type="text"
+                        value={plan.nameRw}
+                        onChange={e => {
+                          const next = [...vipConfig.plans];
+                          next[idx] = { ...plan, nameRw: e.target.value };
+                          setVipConfig({ ...vipConfig, plans: next });
+                        }}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-white mt-0.5"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-neutral-400 text-[10px]">Price (RWF)</label>
+                        <input
+                          type="number"
+                          value={plan.priceRwf}
+                          onChange={e => {
+                            const next = [...vipConfig.plans];
+                            next[idx] = { ...plan, priceRwf: Number(e.target.value) };
+                            setVipConfig({ ...vipConfig, plans: next });
+                          }}
+                          className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-white mt-0.5"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-neutral-400 text-[10px]">Duration (Days)</label>
+                        <input
+                          type="number"
+                          value={plan.durationDays}
+                          onChange={e => {
+                            const next = [...vipConfig.plans];
+                            next[idx] = { ...plan, durationDays: Number(e.target.value) };
+                            setVipConfig({ ...vipConfig, plans: next });
+                          }}
+                          className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-white mt-0.5"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: USER ACCOUNTS & ROLES */}
+      {activeTab === 'users' && (
+        <div className="space-y-4 lg:col-start-2 lg:row-start-3 text-xs">
+          <div>
+            <h2 className="text-lg font-bold text-white">User Accounts &amp; Role Permissions ({usersList.length})</h2>
+            <p className="text-xs text-neutral-400">Manage registered accounts and administrator/editor roles</p>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-neutral-800">
+            <table className="w-full min-w-[640px] bg-neutral-900/60 text-left text-xs">
+              <thead className="bg-neutral-950 text-neutral-400 uppercase text-[10px] border-b border-neutral-800">
+                <tr>
+                  <th className="p-3">Display Name</th>
+                  <th className="p-3">Email</th>
+                  <th className="p-3">Role</th>
+                  <th className="p-3">Joined</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
+                {usersList.map(u => (
+                  <tr key={u.id}>
+                    <td className="p-3 font-bold text-white">{u.displayName}</td>
+                    <td className="p-3 font-mono text-neutral-300">{u.email}</td>
+                    <td className="p-3">
+                      <select
+                        value={u.role}
+                        onChange={async e => {
+                          const role = e.target.value;
+                          const res = await apiFetch(`/api/admin/users/${u.id}/role`, {
+                            method: 'PATCH',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              Authorization: `Bearer ${token}`,
+                            },
+                            body: JSON.stringify({ role }),
+                          });
+                          const data = await res.json();
+                          if (res.ok) {
+                            await fetchUsersData();
+                            setStatusMsg(`Updated role for ${u.email} to ${role}.`);
+                          } else {
+                            setStatusMsg(data.error || 'Could not update role.');
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-white font-bold"
+                      >
+                        <option value="USER">USER</option>
+                        <option value="EDITOR">EDITOR</option>
+                        <option value="ADMIN">ADMIN</option>
+                        <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                      </select>
+                    </td>
+                    <td className="p-3 text-neutral-400">{new Date(u.createdAt).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* UPLOAD / EDIT MOVIE MODAL */}
       {showMovieModal && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
@@ -2096,6 +2674,33 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
                       <option value="PUBLISHED">PUBLISHED</option>
                       <option value="UNPUBLISHED">UNPUBLISHED</option>
                       <option value="ARCHIVED">ARCHIVED</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Umusobanuzi (Interpreter)</label>
+                    <select
+                      value={movieDraft.interpreterSlug}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, interpreterSlug: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    >
+                      <option value="">None / Original Audio Only</option>
+                      {interpretersList.map(interp => (
+                        <option key={interp.id} value={interp.slug}>
+                          {interp.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Card Indicator Badge</label>
+                    <select
+                      value={movieDraft.badgeIndicator}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, badgeIndicator: e.target.value as any }))}
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    >
+                      <option value="NEW">NEW</option>
+                      <option value="UPDATED">UPDATED</option>
+                      <option value="">None</option>
                     </select>
                   </div>
                   <div className="sm:col-span-2">
@@ -2313,6 +2918,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
               <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 space-y-3">
                 <div className="font-bold text-white text-sm flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-red-500" /> D. Movie Rights & Licensing Verification
+                </div>
+                <div className="p-3 rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-300 text-[11px] leading-relaxed">
+                  <strong className="text-amber-400">Important Legal Distinction:</strong> An interpreter’s permission to use their Kinyarwanda narration does <span className="underline font-bold">not</span> grant permission to redistribute the underlying film unless original film rights are verified (<span className="font-mono">OWNED</span>, <span className="font-mono">LICENSED</span>, <span className="font-mono">PERMISSION_GRANTED</span>, or <span className="font-mono">PUBLIC_DOMAIN</span>).
                 </div>
                 {(movieDraft.rightsStatus === 'PENDING_VERIFICATION' || movieDraft.rightsStatus === 'EXPIRED') && (
                   <div className="p-3 rounded-lg bg-amber-950/60 border border-amber-800 text-amber-200 text-[11px]">

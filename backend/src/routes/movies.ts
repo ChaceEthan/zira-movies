@@ -3,6 +3,11 @@ import prisma from '../../prisma/prisma';
 import { seedDatabase } from '../../prisma/seed';
 import { authenticateUser, requireRole, type AuthenticatedRequest } from '../auth';
 import { r2Service } from '../services/cloudflareR2';
+import {
+  getInterpreterAssignments,
+  assignContentInterpreter,
+  type InterpreterAssignmentEntry,
+} from '../services/platformState';
 
 const router = Router();
 const editors = ['EDITOR', 'ADMIN', 'SUPER_ADMIN'];
@@ -40,7 +45,7 @@ function parseOptionalDate(value: unknown): Date | null | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
-function formatMovie(movie: any) {
+function formatMovie(movie: any, assignment?: InterpreterAssignmentEntry) {
   const genres = Array.isArray(movie.movieGenres)
     ? movie.movieGenres.map((entry: any) => entry.genre?.slug || entry.genreId).filter(Boolean)
     : Array.isArray(movie.genres)
@@ -62,6 +67,9 @@ function formatMovie(movie: any) {
     genres: genres.length > 0 ? genres : ['drama'],
     cast,
     country: Array.isArray(rights?.territories) && rights.territories.length > 0 ? rights.territories.join(', ') : 'GLOBAL',
+    interpreterSlug: assignment?.interpreterSlug || movie.interpreterSlug || undefined,
+    interpreterName: assignment?.interpreterName || movie.interpreterName || undefined,
+    badgeIndicator: assignment?.badgeIndicator ?? movie.badgeIndicator ?? null,
     rights,
   };
 }
@@ -146,7 +154,10 @@ router.get('/', async (_req, res, next) => {
         });
       }
     }
-    res.json({ movies: movies.map(formatMovie) });
+    const assignments = await getInterpreterAssignments();
+    res.json({
+      movies: movies.map(m => formatMovie(m, assignments.movies[m.slug] || assignments.movies[m.id])),
+    });
   } catch (error) {
     next(error);
   }
@@ -162,7 +173,10 @@ router.get('/slug/:slug', async (req, res, next) => {
       res.status(404).json({ error: 'Movie not found.' });
       return;
     }
-    res.json({ movie: formatMovie(movie) });
+    const assignments = await getInterpreterAssignments();
+    res.json({
+      movie: formatMovie(movie, assignments.movies[movie.slug] || assignments.movies[movie.id]),
+    });
   } catch (error) {
     next(error);
   }
@@ -188,6 +202,13 @@ router.post('/', authenticateUser, requireRole(editors), async (req: Authenticat
     }
 
     if (requestedState === 'PUBLISHED') {
+      if (req.body.narrationPermissionOnly === true) {
+        res.status(409).json({
+          error:
+            'A translator/interpreter permission for voiceover narration does not grant legal rights to redistribute the underlying film. Verify underlying film distribution rights or save as DRAFT.',
+        });
+        return;
+      }
       const isExpired = rightsEndDate instanceof Date && rightsEndDate.getTime() < Date.now();
       if (!(verifiedPublishRights as readonly string[]).includes(rightsStatus) || isExpired) {
         res.status(409).json({
@@ -278,6 +299,24 @@ router.post('/', authenticateUser, requireRole(editors), async (req: Authenticat
       }
     }
 
+    if (
+      req.body.interpreterSlug !== undefined ||
+      req.body.interpreterName !== undefined ||
+      req.body.badgeIndicator !== undefined
+    ) {
+      await assignContentInterpreter({
+        entityType: 'movie',
+        key: movie.slug,
+        interpreterSlug: typeof req.body.interpreterSlug === 'string' ? req.body.interpreterSlug : undefined,
+        interpreterName: typeof req.body.interpreterName === 'string' ? req.body.interpreterName : undefined,
+        badgeIndicator:
+          req.body.badgeIndicator === 'NEW' || req.body.badgeIndicator === 'UPDATED' || req.body.badgeIndicator === null
+            ? req.body.badgeIndicator
+            : 'NEW',
+      });
+    }
+
+    const assignments = await getInterpreterAssignments();
     await prisma.adminAuditLog.create({
       data: {
         adminId: req.auth!.userId,
@@ -289,10 +328,11 @@ router.post('/', authenticateUser, requireRole(editors), async (req: Authenticat
           slug: movie.slug,
           state: movie.state,
           rightsStatus,
+          interpreterSlug: assignments.movies[movie.slug]?.interpreterSlug || null,
         }),
       },
     });
-    res.status(201).json({ movie: formatMovie(movie) });
+    res.status(201).json({ movie: formatMovie(movie, assignments.movies[movie.slug] || assignments.movies[movie.id]) });
   } catch (error) {
     next(error);
   }
@@ -445,6 +485,25 @@ router.patch('/:movieId', authenticateUser, requireRole(editors), async (req: Au
       data,
       include: { movieGenres: { include: { genre: true } }, contentRights: true },
     });
+
+    if (
+      req.body.interpreterSlug !== undefined ||
+      req.body.interpreterName !== undefined ||
+      req.body.badgeIndicator !== undefined
+    ) {
+      await assignContentInterpreter({
+        entityType: 'movie',
+        key: updated.slug,
+        interpreterSlug: typeof req.body.interpreterSlug === 'string' ? req.body.interpreterSlug : undefined,
+        interpreterName: typeof req.body.interpreterName === 'string' ? req.body.interpreterName : undefined,
+        badgeIndicator:
+          req.body.badgeIndicator === 'NEW' || req.body.badgeIndicator === 'UPDATED' || req.body.badgeIndicator === null
+            ? req.body.badgeIndicator
+            : undefined,
+      });
+    }
+
+    const assignments = await getInterpreterAssignments();
     await prisma.adminAuditLog.create({
       data: {
         adminId: req.auth!.userId,
@@ -454,7 +513,7 @@ router.patch('/:movieId', authenticateUser, requireRole(editors), async (req: Au
         metadata: JSON.stringify({ title: updated.title, slug: updated.slug, state: updated.state }),
       },
     });
-    res.json({ movie: formatMovie(updated) });
+    res.json({ movie: formatMovie(updated, assignments.movies[updated.slug] || assignments.movies[updated.id]) });
   } catch (error) {
     next(error);
   }

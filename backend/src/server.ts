@@ -9,6 +9,8 @@ import movieRoutes from './routes/movies';
 import seriesRoutes from './routes/series';
 import userRoutes from './routes/user';
 import uploadRoutes from './upload';
+import interpreterRoutes from './routes/interpreters';
+import vipRoutes from './routes/vip';
 
 export const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -121,7 +123,7 @@ async function handleSitemap(_req: express.Request, res: express.Response, next:
 			prisma.movie.findMany({ where: { state: 'PUBLISHED' } }),
 			prisma.series.findMany({ where: { state: 'PUBLISHED' } }),
 		]);
-		const staticRoutes = ['', '/movies', '/series', '/browse'];
+		const staticRoutes = ['', '/movies', '/series', '/interpreters', '/vip', '/browse'];
 		const urls = [
 			...staticRoutes.map(
 				route =>
@@ -163,6 +165,8 @@ app.use('/api/movies', movieRoutes);
 app.use('/api/series', seriesRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/interpreters', interpreterRoutes);
+app.use('/api/vip', vipRoutes);
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
@@ -189,7 +193,7 @@ const server =
 					void prisma.movie
 						.count({ where: { state: 'PUBLISHED' } })
 						.then(count => {
-							if (count < 10) {
+							if (count < 5) {
 								return seedDatabase();
 							}
 						})

@@ -14,6 +14,7 @@ interface BrowseViewProps {
   onSelectContent: (item: Movie | Series) => void;
   onWatchContent: (item: Movie | Series) => void;
   onToggleMyList?: (item: Movie | Series) => void;
+  onSelectInterpreter?: (slug: string) => void;
   myListIds?: string[];
 }
 
@@ -27,6 +28,7 @@ export function BrowseView({
   onSelectContent,
   onWatchContent,
   onToggleMyList,
+  onSelectInterpreter,
   myListIds = [],
 }: BrowseViewProps) {
   const [query, setQuery] = useState(initialSearchQuery);
@@ -204,18 +206,19 @@ export function BrowseView({
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
             {filteredItems.map(item => {
               const progress = watchProgressMap[item.id];
               const isInMyList = myListIds.includes(item.id);
               return (
-                <div key={item.id} className="w-full flex justify-center">
+                <div key={item.id} className="w-full">
                   <MovieCard
                     item={item}
                     watchProgress={progress}
                     onSelect={onSelectContent}
                     onWatch={onWatchContent}
                     onToggleMyList={onToggleMyList}
+                    onSelectInterpreter={onSelectInterpreter}
                     isInMyList={isInMyList}
                   />
                 </div>

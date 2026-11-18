@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Plus, Check, Star, Share2, Tv, Clock, Film } from 'lucide-react';
+import { Play, Plus, Check, Star, Share2, Tv, Clock, Film, Mic } from 'lucide-react';
 import { Series, Episode, WatchProgress } from '../types';
 import { MonetagAd } from '../components/MonetagAd';
 
@@ -9,6 +9,7 @@ interface SeriesDetailsViewProps {
   onPlayEpisode: (series: Series, episode: Episode) => void;
   onTrailer: (series: Series) => void;
   onToggleMyList: (series: Series) => void;
+  onSelectInterpreter?: (slug: string) => void;
   isInMyList: boolean;
 }
 
@@ -18,6 +19,7 @@ export function SeriesDetailsView({
   onPlayEpisode,
   onTrailer,
   onToggleMyList,
+  onSelectInterpreter,
   isInMyList,
 }: SeriesDetailsViewProps) {
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1);
@@ -56,6 +58,20 @@ export function SeriesDetailsView({
               {series.seasons.length} Season{series.seasons.length > 1 ? 's' : ''}
             </span>
             <span className="text-neutral-400">{series.releaseYear}</span>
+            {series.interpreterName && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSelectInterpreter && series.interpreterSlug
+                    ? onSelectInterpreter(series.interpreterSlug)
+                    : undefined
+                }
+                className="px-3 py-1 rounded-full bg-amber-500/20 hover:bg-amber-400 hover:text-neutral-950 text-amber-300 border border-amber-500/40 font-extrabold flex items-center gap-1.5 transition-colors"
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>Umusobanuzi: {series.interpreterName}</span>
+              </button>
+            )}
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight">

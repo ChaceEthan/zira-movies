@@ -345,3 +345,81 @@ test('initial administrator bootstrap creates SUPER_ADMIN once and blocks subseq
   });
   assert.equal(secondBootRes.status, 403);
 });
+
+test('interpreter profiles API returns seeded illustrative profiles with content counts and supports admin creation', async () => {
+  const listRes = await fetch(`${baseUrl}/api/interpreters`);
+  assert.equal(listRes.status, 200);
+  const listData = (await listRes.json()) as {
+    interpreters: Array<{ displayName: string; slug: string; isExampleProfile: boolean; totalContentCount: number }>;
+  };
+  assert.ok(listData.interpreters.length >= 7);
+  const rocky = listData.interpreters.find(i => i.slug === 'rocky');
+  assert.ok(rocky);
+  assert.equal(rocky.displayName, 'Rocky');
+  assert.equal(rocky.isExampleProfile, true);
+  assert.ok(rocky.totalContentCount >= 1);
+
+  const profileRes = await fetch(`${baseUrl}/api/interpreters/rocky`);
+  assert.equal(profileRes.status, 200);
+  const profileData = (await profileRes.json()) as {
+    interpreter: { slug: string; publishedMovies: unknown[]; totalContentCount: number };
+  };
+  assert.equal(profileData.interpreter.slug, 'rocky');
+  assert.ok(Array.isArray(profileData.interpreter.publishedMovies));
+
+  const createRes = await fetch(`${baseUrl}/api/interpreters`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      displayName: 'Yanga Classic',
+      slug: 'yanga-classic',
+      biography: 'Authorized Kinyarwanda film narrator profile.',
+      isFeatured: true,
+    }),
+  });
+  assert.equal(createRes.status, 201);
+});
+
+test('VIP membership API guarantees free viewing, allows admin benefit configuration, and never fakes payment success', async () => {
+  const getRes = await fetch(`${baseUrl}/api/vip`);
+  assert.equal(getRes.status, 200);
+  const getData = (await getRes.json()) as {
+    freeViewingGuaranteed: boolean;
+    paymentGatewayConfigured: boolean;
+    vipConfig: { benefits: Array<{ id: string; enabled: boolean }>; plans: Array<{ id: string; priceRwf: number }> };
+  };
+  assert.equal(getData.freeViewingGuaranteed, true);
+  assert.equal(getData.paymentGatewayConfigured, false);
+  assert.ok(getData.vipConfig.benefits.length >= 5);
+  assert.ok(getData.vipConfig.plans.length >= 3);
+
+  const checkoutRes = await fetch(`${baseUrl}/api/vip/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ planId: 'vip-monthly', paymentMethod: 'MTN_MOMO' }),
+  });
+  assert.equal(checkoutRes.status, 503);
+  const checkoutBody = (await checkoutRes.json()) as { verifiedPayment: boolean };
+  assert.equal(checkoutBody.verifiedPayment, false);
+});
+
+test('movie upload blocks publication when only narrator permission is checked without underlying film rights', async () => {
+  const res = await fetch(`${baseUrl}/api/movies`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'Narration Only Test Film',
+      slug: 'narration-only-test-film',
+      description: 'Testing that narrator permission alone cannot publish an unlicensed underlying film.',
+      releaseYear: 2026,
+      durationMinutes: 90,
+      rightsStatus: 'LICENSED',
+      narrationPermissionOnly: true,
+      state: 'PUBLISHED',
+    }),
+  });
+  assert.equal(res.status, 409);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /narration/i);
+});
+

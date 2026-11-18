@@ -5,6 +5,57 @@ export interface SeedGenre {
   description: string;
 }
 
+export interface SeedInterpreter {
+  id: string;
+  displayName: string;
+  slug: string;
+  photoUrl: string;
+  biography: string;
+  socialLinks: {
+    youtube?: string;
+    instagram?: string;
+    tiktok?: string;
+    x?: string;
+    website?: string;
+  };
+  specialtyGenres: string[];
+  isFeatured: boolean;
+  isExampleProfile: boolean;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface VipBenefitConfig {
+  id: string;
+  key: string;
+  title: string;
+  titleRw: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface VipPlanConfig {
+  id: string;
+  name: string;
+  nameRw: string;
+  durationDays: number;
+  priceRwf: number;
+  priceUsd: number;
+  badgeText?: string;
+  popular?: boolean;
+  active: boolean;
+}
+
+export interface VipPlatformConfig {
+  vipEnabled: boolean;
+  freeViewingGuaranteed: boolean;
+  adFreeForVip: boolean;
+  reducedAdsForVip: boolean;
+  plans: VipPlanConfig[];
+  benefits: VipBenefitConfig[];
+  updatedAt: string;
+}
+
 export interface SeedMovie {
   id: string;
   title: string;
@@ -32,6 +83,9 @@ export interface SeedMovie {
   videoUrl: string;
   genres: string[];
   cast: string[];
+  interpreterSlug?: string;
+  interpreterName?: string;
+  badgeIndicator?: 'NEW' | 'UPDATED' | null;
   rightsStatus: 'OWNED' | 'LICENSED' | 'PERMISSION_GRANTED' | 'PUBLIC_DOMAIN' | 'PENDING_VERIFICATION' | 'EXPIRED';
   rightsHolder: string;
   licenseReference: string;
@@ -47,6 +101,8 @@ export interface SeedEpisode {
   durationMinutes: number;
   thumbnailUrl: string;
   videoUrl: string;
+  interpreterSlug?: string;
+  interpreterName?: string;
   state: 'PUBLISHED';
 }
 
@@ -80,6 +136,9 @@ export interface SeedSeries {
   trailerUrl: string;
   genres: string[];
   cast: string[];
+  interpreterSlug?: string;
+  interpreterName?: string;
+  badgeIndicator?: 'NEW' | 'UPDATED' | null;
   rightsStatus: 'OWNED' | 'LICENSED' | 'PERMISSION_GRANTED' | 'PUBLIC_DOMAIN';
   rightsHolder: string;
   licenseReference: string;
@@ -122,6 +181,33 @@ function createArtworkDataUrl(
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+export function createInterpreterAvatarDataUrl(name: string, accentA: string, accentB: string): string {
+  const initials = name
+    .split(/\s+/)
+    .map(part => part[0] || '')
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+  const safeName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+    <defs>
+      <linearGradient id="avbg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#090d16"/>
+        <stop offset="55%" stop-color="${accentA}"/>
+        <stop offset="100%" stop-color="${accentB}"/>
+      </linearGradient>
+    </defs>
+    <rect width="400" height="400" rx="200" fill="url(#avbg)"/>
+    <circle cx="200" cy="200" r="186" fill="none" stroke="rgba(245,158,11,0.45)" stroke-width="4"/>
+    <circle cx="200" cy="152" r="56" fill="rgba(255,255,255,0.14)"/>
+    <path d="M96 336 C108 262 292 262 304 336" fill="rgba(255,255,255,0.12)"/>
+    <text x="200" y="172" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-weight="900" font-size="48" letter-spacing="2">${initials}</text>
+    <rect x="70" y="308" width="260" height="36" rx="18" fill="rgba(5,8,17,0.82)" stroke="rgba(245,158,11,0.5)" stroke-width="1.5"/>
+    <text x="200" y="331" text-anchor="middle" fill="#fbbf24" font-family="Arial, sans-serif" font-weight="800" font-size="15" letter-spacing="1.5">${safeName.toUpperCase()}</text>
+  </svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 export const OPEN_VIDEOS = {
   bbb: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
   sintel: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
@@ -135,16 +221,252 @@ export const SEED_GENRES: SeedGenre[] = [
   { id: 'genre-action', name: 'Action', slug: 'action', description: 'High-stakes adventures and kinetic cinema' },
   { id: 'genre-drama', name: 'Drama', slug: 'drama', description: 'Character-driven cinema and emotional storytelling' },
   { id: 'genre-comedy', name: 'Comedy', slug: 'comedy', description: 'Wit, satire, and lighthearted entertainment' },
+  { id: 'genre-horror', name: 'Horror', slug: 'horror', description: 'Dark suspense, supernatural chills, and psychological terror' },
   { id: 'genre-sci-fi', name: 'Sci-Fi', slug: 'sci-fi', description: 'Speculative futures, technology, and discovery' },
   { id: 'genre-thriller', name: 'Thriller', slug: 'thriller', description: 'Suspense, intrigue, and high tension' },
   { id: 'genre-documentary', name: 'Documentary', slug: 'documentary', description: 'Real stories, history, and nature' },
-  { id: 'genre-animation', name: 'Animation', slug: 'animation', description: ' Stylized and computer-generated visual storytelling' },
+  { id: 'genre-animation', name: 'Animation', slug: 'animation', description: 'Stylized and computer-generated visual storytelling' },
   { id: 'genre-fantasy', name: 'Fantasy', slug: 'fantasy', description: 'Mythic worlds and epic quests' },
   { id: 'genre-mystery', name: 'Mystery', slug: 'mystery', description: 'Investigative puzzles and secrets' },
   { id: 'genre-family', name: 'Family', slug: 'family', description: 'All-ages stories for the entire household' },
   { id: 'genre-adventure', name: 'Adventure', slug: 'adventure', description: 'Journeys across extraordinary landscapes' },
   { id: 'genre-rwandan', name: 'Rwandan Cinema', slug: 'rwandan-cinema', description: 'Stories crafted in Rwanda and East Africa' },
 ];
+
+/**
+ * Illustrative Agasobanuye Interpreter Profiles (Abasobanuzi).
+ * Note: These seeded profiles are clearly marked as illustrative catalog examples
+ * (`isExampleProfile: true`) to demonstrate the Interpreter Management System and
+ * do not imply endorsement or participation agreements by any named individual.
+ */
+export const SEED_INTERPRETERS: SeedInterpreter[] = [
+  {
+    id: 'interp-rocky',
+    displayName: 'Rocky',
+    slug: 'rocky',
+    photoUrl: createInterpreterAvatarDataUrl('Rocky', '#991b1b', '#f59e0b'),
+    biography:
+      'Illustrative profile for Kinyarwanda cinema narration (Agasobanuye) specializing in epic fantasy, high-energy action, and adventure storytelling. (Example catalog profile — managed via ZIRA Admin Console.)',
+    socialLinks: {
+      youtube: 'https://youtube.com',
+      instagram: 'https://instagram.com',
+    },
+    specialtyGenres: ['action', 'fantasy', 'adventure'],
+    isFeatured: true,
+    isExampleProfile: true,
+    active: true,
+    createdAt: '2026-01-10T00:00:00.000Z',
+  },
+  {
+    id: 'interp-sankara',
+    displayName: 'Sankara',
+    slug: 'sankara',
+    photoUrl: createInterpreterAvatarDataUrl('Sankara', '#1e3a8a', '#38bdf8'),
+    biography:
+      'Illustrative profile for sci-fi, cyberpunk action, and suspense thrillers in Kinyarwanda voiceover narration. (Example catalog profile — managed via ZIRA Admin Console.)',
+    socialLinks: {
+      youtube: 'https://youtube.com',
+    },
+    specialtyGenres: ['sci-fi', 'action', 'thriller'],
+    isFeatured: true,
+    isExampleProfile: true,
+    active: true,
+    createdAt: '2026-01-11T00:00:00.000Z',
+  },
+  {
+    id: 'interp-gaheza',
+    displayName: 'Gaheza',
+    slug: 'gaheza',
+    photoUrl: createInterpreterAvatarDataUrl('Gaheza', '#3b0764', '#a855f7'),
+    biography:
+      'Illustrative profile focused on mystery, psychological suspense, horror, and surreal cinema narration. (Example catalog profile — managed via ZIRA Admin Console.)',
+    socialLinks: {
+      youtube: 'https://youtube.com',
+    },
+    specialtyGenres: ['mystery', 'horror', 'sci-fi'],
+    isFeatured: true,
+    isExampleProfile: true,
+    active: true,
+    createdAt: '2026-01-12T00:00:00.000Z',
+  },
+  {
+    id: 'interp-perfect',
+    displayName: 'Perfect',
+    slug: 'perfect',
+    photoUrl: createInterpreterAvatarDataUrl('Perfect', '#065f46', '#10b981'),
+    biography:
+      'Illustrative profile showcasing family animation, comedy, and crowd-favorite adventure narration. (Example catalog profile — managed via ZIRA Admin Console.)',
+    socialLinks: {
+      youtube: 'https://youtube.com',
+      tiktok: 'https://tiktok.com',
+    },
+    specialtyGenres: ['comedy', 'animation', 'family'],
+    isFeatured: true,
+    isExampleProfile: true,
+    active: true,
+    createdAt: '2026-01-13T00:00:00.000Z',
+  },
+  {
+    id: 'interp-b-the-great',
+    displayName: 'B The Great',
+    slug: 'b-the-great',
+    photoUrl: createInterpreterAvatarDataUrl('B The Great', '#7c2d12', '#fb923c'),
+    biography:
+      'Illustrative profile for serialized anthology drama, fantasy series, and multi-season episodic narration. (Example catalog profile — managed via ZIRA Admin Console.)',
+    socialLinks: {
+      youtube: 'https://youtube.com',
+    },
+    specialtyGenres: ['drama', 'fantasy', 'animation'],
+    isFeatured: true,
+    isExampleProfile: true,
+    active: true,
+    createdAt: '2026-01-14T00:00:00.000Z',
+  },
+  {
+    id: 'interp-kim',
+    displayName: 'Kim',
+    slug: 'kim',
+    photoUrl: createInterpreterAvatarDataUrl('Kim', '#0f4c81', '#22d3ee'),
+    biography:
+      'Illustrative profile highlighting comedy, speculative sci-fi, and modern adventure cinema narration. (Example catalog profile — managed via ZIRA Admin Console.)',
+    socialLinks: {
+      instagram: 'https://instagram.com',
+    },
+    specialtyGenres: ['comedy', 'sci-fi', 'adventure'],
+    isFeatured: true,
+    isExampleProfile: true,
+    active: true,
+    createdAt: '2026-01-15T00:00:00.000Z',
+  },
+  {
+    id: 'interp-siniya',
+    displayName: 'Siniya',
+    slug: 'siniya',
+    photoUrl: createInterpreterAvatarDataUrl('Siniya', '#831843', '#f43f5e'),
+    biography:
+      'Illustrative profile dedicated to Rwandan and East African serialized storytelling, drama, and cultural showcases. (Example catalog profile — managed via ZIRA Admin Console.)',
+    socialLinks: {
+      youtube: 'https://youtube.com',
+    },
+    specialtyGenres: ['rwandan-cinema', 'drama', 'documentary'],
+    isFeatured: true,
+    isExampleProfile: true,
+    active: true,
+    createdAt: '2026-01-16T00:00:00.000Z',
+  },
+];
+
+export const DEFAULT_INTERPRETER_ASSIGNMENTS: {
+  movies: Record<string, { interpreterSlug: string; interpreterName: string; badgeIndicator?: 'NEW' | 'UPDATED' | null }>;
+  series: Record<string, { interpreterSlug: string; interpreterName: string; badgeIndicator?: 'NEW' | 'UPDATED' | null }>;
+  episodes: Record<string, { interpreterSlug: string; interpreterName: string }>;
+} = {
+  movies: {
+    'big-buck-bunny': { interpreterSlug: 'perfect', interpreterName: 'Perfect', badgeIndicator: 'UPDATED' },
+    sintel: { interpreterSlug: 'rocky', interpreterName: 'Rocky', badgeIndicator: 'NEW' },
+    'tears-of-steel': { interpreterSlug: 'sankara', interpreterName: 'Sankara', badgeIndicator: 'NEW' },
+    'elephants-dream': { interpreterSlug: 'gaheza', interpreterName: 'Gaheza', badgeIndicator: 'UPDATED' },
+    'cosmos-laundromat': { interpreterSlug: 'kim', interpreterName: 'Kim', badgeIndicator: 'NEW' },
+    'kigali-horizon-demo': { interpreterSlug: 'siniya', interpreterName: 'Siniya', badgeIndicator: 'NEW' },
+  },
+  series: {
+    'blender-open-movie-anthology': { interpreterSlug: 'b-the-great', interpreterName: 'B The Great', badgeIndicator: 'NEW' },
+    'rwanda-open-media-showcase': { interpreterSlug: 'siniya', interpreterName: 'Siniya', badgeIndicator: 'UPDATED' },
+  },
+  episodes: {
+    'ep-blender-s1-e1': { interpreterSlug: 'gaheza', interpreterName: 'Gaheza' },
+    'ep-blender-s1-e2': { interpreterSlug: 'perfect', interpreterName: 'Perfect' },
+    'ep-blender-s1-e3': { interpreterSlug: 'rocky', interpreterName: 'Rocky' },
+    'ep-blender-s1-e4': { interpreterSlug: 'sankara', interpreterName: 'Sankara' },
+    'ep-rwanda-s1-e1': { interpreterSlug: 'siniya', interpreterName: 'Siniya' },
+    'ep-rwanda-s1-e2': { interpreterSlug: 'b-the-great', interpreterName: 'B The Great' },
+  },
+};
+
+export const DEFAULT_VIP_CONFIG: VipPlatformConfig = {
+  vipEnabled: true,
+  freeViewingGuaranteed: true,
+  adFreeForVip: true,
+  reducedAdsForVip: true,
+  updatedAt: '2026-03-01T00:00:00.000Z',
+  plans: [
+    {
+      id: 'vip-monthly',
+      name: 'Monthly VIP',
+      nameRw: 'Ukwezi 1 VIP',
+      durationDays: 30,
+      priceRwf: 3000,
+      priceUsd: 2.99,
+      badgeText: 'Flexible',
+      popular: false,
+      active: true,
+    },
+    {
+      id: 'vip-quarterly',
+      name: 'Quarterly VIP',
+      nameRw: 'Amezi 3 VIP',
+      durationDays: 90,
+      priceRwf: 7500,
+      priceUsd: 6.99,
+      badgeText: 'Most Popular',
+      popular: true,
+      active: true,
+    },
+    {
+      id: 'vip-annual',
+      name: 'Annual VIP',
+      nameRw: 'Umwaka 1 VIP',
+      durationDays: 365,
+      priceRwf: 25000,
+      priceUsd: 21.99,
+      badgeText: 'Best Value',
+      popular: false,
+      active: true,
+    },
+  ],
+  benefits: [
+    {
+      id: 'benefit-ad-free',
+      key: 'AD_FREE_BROWSING',
+      title: 'Ad-Free Browsing Experience',
+      titleRw: 'Kureba Filime Nta Kwamamaza',
+      description: 'Browse and stream all authorized ZIRA content with zero display banners or section sponsor blocks.',
+      enabled: true,
+    },
+    {
+      id: 'benefit-reduced-ads',
+      key: 'REDUCED_ADVERTISING',
+      title: 'Reduced Advertising Mode',
+      titleRw: 'Kwamamaza Guke Cyane',
+      description: 'Option to keep only minimal non-intrusive community partner highlights while hiding commercial ad slots.',
+      enabled: true,
+    },
+    {
+      id: 'benefit-bonus-content',
+      key: 'EXCLUSIVE_BONUS_CONTENT',
+      title: 'Exclusive Bonus Content (Authorized Rights Only)',
+      titleRw: 'inyongera zihariye ku banyamuryango ba VIP',
+      description: 'Access director commentary, behind-the-scenes reels, and bonus cuts where ZIRA holds verified distribution rights.',
+      enabled: true,
+    },
+    {
+      id: 'benefit-vip-badge',
+      key: 'VIP_ACCOUNT_BADGE',
+      title: 'Gold VIP Account Badge',
+      titleRw: 'Ikirango cya Zahabu cya VIP',
+      description: 'Distinguished gold VIP crown badge on your ZIRA profile and priority community recognition.',
+      enabled: true,
+    },
+    {
+      id: 'benefit-priority-hd',
+      key: 'PRIORITY_HD_STREAMING',
+      title: 'Priority High-Bitrate HD Playback',
+      titleRw: 'Amashusho ya Full HD yihuta',
+      description: 'Automatic High-Quality 1080p stream selection and multi-device watch progress synchronization.',
+      enabled: true,
+    },
+  ],
+};
 
 /**
  * Curated Demo Movie Catalog (6 entries total):
@@ -178,8 +500,11 @@ export const ALL_SEED_MOVIES: SeedMovie[] = [
     backdropUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/70/Big.Buck.Bunny.-.Opening.Screen.png',
     trailerUrl: OPEN_VIDEOS.bbb,
     videoUrl: OPEN_VIDEOS.bbb,
-    genres: ['animation', 'comedy', 'family'],
+    genres: ['animation', 'comedy', 'family', 'action'],
     cast: ['Sacha Goedegebure', 'Andreas Goralczyk', 'Enrico Valenza', 'Nathan Vegdahl'],
+    interpreterSlug: 'perfect',
+    interpreterName: 'Perfect',
+    badgeIndicator: 'UPDATED',
     rightsStatus: 'PUBLIC_DOMAIN',
     rightsHolder: 'Blender Foundation (CC-BY 3.0)',
     licenseReference: 'CC-BY-3.0-BLENDER-BBB-2008',
@@ -212,8 +537,11 @@ export const ALL_SEED_MOVIES: SeedMovie[] = [
     backdropUrl: 'https://upload.wikimedia.org/wikipedia/commons/b/b2/Sintel_wallpaper_dragon.jpg',
     trailerUrl: OPEN_VIDEOS.sintel,
     videoUrl: OPEN_VIDEOS.sintel,
-    genres: ['animation', 'fantasy', 'drama', 'adventure'],
+    genres: ['animation', 'fantasy', 'drama', 'action', 'adventure'],
     cast: ['Halina Reijn', 'Thom Hoffman', 'Colin Levy', 'David Revoy'],
+    interpreterSlug: 'rocky',
+    interpreterName: 'Rocky',
+    badgeIndicator: 'NEW',
     rightsStatus: 'LICENSED',
     rightsHolder: 'Blender Foundation (CC-BY 3.0)',
     licenseReference: 'CC-BY-3.0-BLENDER-SINTEL-2010',
@@ -246,8 +574,11 @@ export const ALL_SEED_MOVIES: SeedMovie[] = [
     backdropUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/73/Tears_of_Steel_bridge.jpg',
     trailerUrl: OPEN_VIDEOS.tos,
     videoUrl: OPEN_VIDEOS.tos,
-    genres: ['sci-fi', 'action', 'drama'],
+    genres: ['sci-fi', 'action', 'drama', 'thriller'],
     cast: ['Derek de Lint', 'Sergio Hasselbaink', 'Denise Rebergen', 'Vanja Rukavina'],
+    interpreterSlug: 'sankara',
+    interpreterName: 'Sankara',
+    badgeIndicator: 'NEW',
     rightsStatus: 'LICENSED',
     rightsHolder: 'Blender Foundation | Mango Open Movie Project (CC-BY 3.0)',
     licenseReference: 'CC-BY-3.0-BLENDER-TOS-2012',
@@ -280,8 +611,11 @@ export const ALL_SEED_MOVIES: SeedMovie[] = [
     backdropUrl: 'https://upload.wikimedia.org/wikipedia/commons/e/e8/Elephants_Dream_s5_both.jpg',
     trailerUrl: OPEN_VIDEOS.ed,
     videoUrl: OPEN_VIDEOS.ed,
-    genres: ['animation', 'sci-fi', 'mystery'],
+    genres: ['animation', 'sci-fi', 'mystery', 'horror'],
     cast: ['Tycho Gernandt', 'Cas Jansen', 'Bassam Kurdali', 'Ton Roosendaal'],
+    interpreterSlug: 'gaheza',
+    interpreterName: 'Gaheza',
+    badgeIndicator: 'UPDATED',
     rightsStatus: 'LICENSED',
     rightsHolder: 'Blender Foundation | Orange Open Movie Project (CC-BY 2.5)',
     licenseReference: 'CC-BY-2.5-BLENDER-ED-2006',
@@ -314,8 +648,11 @@ export const ALL_SEED_MOVIES: SeedMovie[] = [
     backdropUrl: createArtworkDataUrl('Cosmos Laundromat', 'BLENDER OPEN MOVIE • CC-BY 4.0', '#0f4c81', '#38bdf8', 1280, 720),
     trailerUrl: OPEN_VIDEOS.blazes,
     videoUrl: OPEN_VIDEOS.blazes,
-    genres: ['animation', 'sci-fi', 'comedy', 'adventure'],
+    genres: ['animation', 'sci-fi', 'comedy', 'drama', 'horror'],
     cast: ['Pierre Bokma', 'Reinout Scholten van Aschat', 'Mathieu Auvray'],
+    interpreterSlug: 'kim',
+    interpreterName: 'Kim',
+    badgeIndicator: 'NEW',
     rightsStatus: 'LICENSED',
     rightsHolder: 'Blender Foundation | Gooseberry Open Movie Project (CC-BY 4.0)',
     licenseReference: 'CC-BY-4.0-BLENDER-COSMOS-2015',
@@ -349,6 +686,9 @@ export const ALL_SEED_MOVIES: SeedMovie[] = [
     videoUrl: OPEN_VIDEOS.escapes,
     genres: ['rwandan-cinema', 'drama', 'sci-fi'],
     cast: ['Demo Cast Showcase'],
+    interpreterSlug: 'siniya',
+    interpreterName: 'Siniya',
+    badgeIndicator: 'NEW',
     rightsStatus: 'PENDING_VERIFICATION',
     rightsHolder: 'Demo Filmmaker Submission (Unverified)',
     licenseReference: 'PENDING-RIGHTS-REVIEW-DEMO',
@@ -433,8 +773,11 @@ export const SEED_SERIES: SeedSeries[] = [
     posterUrl: 'https://upload.wikimedia.org/wikipedia/commons/8/8f/Sintel_poster.jpg',
     backdropUrl: 'https://upload.wikimedia.org/wikipedia/commons/b/b2/Sintel_wallpaper_dragon.jpg',
     trailerUrl: OPEN_VIDEOS.sintel,
-    genres: ['animation', 'sci-fi', 'fantasy'],
+    genres: ['animation', 'sci-fi', 'fantasy', 'action'],
     cast: ['Blender Studio Ensemble'],
+    interpreterSlug: 'b-the-great',
+    interpreterName: 'B The Great',
+    badgeIndicator: 'NEW',
     rightsStatus: 'PUBLIC_DOMAIN',
     rightsHolder: 'Blender Foundation (CC-BY 3.0)',
     licenseReference: 'CC-BY-3.0-BLENDER-ANTHOLOGY',
@@ -453,6 +796,8 @@ export const SEED_SERIES: SeedSeries[] = [
             durationMinutes: 11,
             thumbnailUrl: 'https://upload.wikimedia.org/wikipedia/commons/e/e8/Elephants_Dream_s5_both.jpg',
             videoUrl: OPEN_VIDEOS.ed,
+            interpreterSlug: 'gaheza',
+            interpreterName: 'Gaheza',
             state: 'PUBLISHED',
           },
           {
@@ -463,6 +808,8 @@ export const SEED_SERIES: SeedSeries[] = [
             durationMinutes: 10,
             thumbnailUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/70/Big.Buck.Bunny.-.Opening.Screen.png',
             videoUrl: OPEN_VIDEOS.bbb,
+            interpreterSlug: 'perfect',
+            interpreterName: 'Perfect',
             state: 'PUBLISHED',
           },
           {
@@ -473,6 +820,8 @@ export const SEED_SERIES: SeedSeries[] = [
             durationMinutes: 15,
             thumbnailUrl: 'https://upload.wikimedia.org/wikipedia/commons/b/b2/Sintel_wallpaper_dragon.jpg',
             videoUrl: OPEN_VIDEOS.sintel,
+            interpreterSlug: 'rocky',
+            interpreterName: 'Rocky',
             state: 'PUBLISHED',
           },
           {
@@ -483,6 +832,8 @@ export const SEED_SERIES: SeedSeries[] = [
             durationMinutes: 12,
             thumbnailUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/73/Tears_of_Steel_bridge.jpg',
             videoUrl: OPEN_VIDEOS.tos,
+            interpreterSlug: 'sankara',
+            interpreterName: 'Sankara',
             state: 'PUBLISHED',
           },
         ],
@@ -510,8 +861,11 @@ export const SEED_SERIES: SeedSeries[] = [
     posterUrl: createArtworkDataUrl('Rwanda Media Showcase', 'DEMO SERIES • OPEN STREAM', '#065f46', '#10b981', 600, 900),
     backdropUrl: createArtworkDataUrl('Rwanda Media Showcase', 'DEMO SERIES • OPEN STREAM', '#065f46', '#10b981', 1280, 720),
     trailerUrl: OPEN_VIDEOS.bbb,
-    genres: ['rwandan-cinema', 'documentary', 'family'],
+    genres: ['rwandan-cinema', 'documentary', 'family', 'drama'],
     cast: ['ZIRA Open Media Collective'],
+    interpreterSlug: 'siniya',
+    interpreterName: 'Siniya',
+    badgeIndicator: 'UPDATED',
     rightsStatus: 'PUBLIC_DOMAIN',
     rightsHolder: 'ZIRA Open Demo Catalog (CC-BY)',
     licenseReference: 'ZIRA-DEMO-SERIES-CC-BY',
@@ -530,6 +884,8 @@ export const SEED_SERIES: SeedSeries[] = [
             durationMinutes: 10,
             thumbnailUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/70/Big.Buck.Bunny.-.Opening.Screen.png',
             videoUrl: OPEN_VIDEOS.bbb,
+            interpreterSlug: 'siniya',
+            interpreterName: 'Siniya',
             state: 'PUBLISHED',
           },
           {
@@ -540,6 +896,8 @@ export const SEED_SERIES: SeedSeries[] = [
             durationMinutes: 15,
             thumbnailUrl: 'https://upload.wikimedia.org/wikipedia/commons/b/b2/Sintel_wallpaper_dragon.jpg',
             videoUrl: OPEN_VIDEOS.sintel,
+            interpreterSlug: 'b-the-great',
+            interpreterName: 'B The Great',
             state: 'PUBLISHED',
           },
         ],

@@ -1,6 +1,13 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { SEED_GENRES, ALL_SEED_MOVIES, SEED_SERIES } from '../src/catalogSeedData';
+import {
+  SEED_GENRES,
+  ALL_SEED_MOVIES,
+  SEED_SERIES,
+  SEED_INTERPRETERS,
+  DEFAULT_INTERPRETER_ASSIGNMENTS,
+  DEFAULT_VIP_CONFIG,
+} from '../src/catalogSeedData';
 
 const AD_PLACEMENTS = [
   'HOME_BETWEEN_RAILS',
@@ -39,6 +46,7 @@ interface MemoryStore {
   auditLogs: any[];
   adPlacements: any[];
   videoAssets: any[];
+  featureFlags: any[];
 }
 
 function createInitialMemoryStore(): MemoryStore {
@@ -255,6 +263,30 @@ function createInitialMemoryStore(): MemoryStore {
     updatedAt: now,
   }));
 
+  const featureFlags: any[] = [
+    ...SEED_INTERPRETERS.map(interp => ({
+      id: `ff-${interp.slug}`,
+      key: `interpreter:${interp.slug}`,
+      description: JSON.stringify(interp),
+      enabled: interp.active,
+      updatedAt: now,
+    })),
+    {
+      id: 'ff-interpreter-assignments',
+      key: 'interpreter_assignments',
+      description: JSON.stringify(DEFAULT_INTERPRETER_ASSIGNMENTS),
+      enabled: true,
+      updatedAt: now,
+    },
+    {
+      id: 'ff-vip-config',
+      key: 'vip_config',
+      description: JSON.stringify(DEFAULT_VIP_CONFIG),
+      enabled: DEFAULT_VIP_CONFIG.vipEnabled,
+      updatedAt: now,
+    },
+  ];
+
   return {
     genres,
     movies,
@@ -292,6 +324,7 @@ function createInitialMemoryStore(): MemoryStore {
     ],
     adPlacements,
     videoAssets: [],
+    featureFlags,
   };
 }
 
@@ -783,6 +816,9 @@ const memoryClient: any = {
       }
       return list.length;
     },
+    findMany: async () => {
+      return [...memoryStore.users].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    },
     findUnique: async ({ where }: any) => {
       return memoryStore.users.find(u => (where.id && u.id === where.id) || (where.email && u.email === where.email)) || null;
     },
@@ -1236,6 +1272,69 @@ const memoryClient: any = {
         throw err;
       }
       const [removed] = memoryStore.videoAssets.splice(idx, 1);
+      return removed;
+    },
+  },
+  featureFlag: {
+    findMany: async ({ where }: any = {}) => {
+      let list = [...memoryStore.featureFlags];
+      if (where?.key?.startsWith) {
+        list = list.filter(f => f.key.startsWith(where.key.startsWith));
+      } else if (typeof where?.key === 'string') {
+        list = list.filter(f => f.key === where.key);
+      }
+      return list;
+    },
+    findUnique: async ({ where }: any) => {
+      return (
+        memoryStore.featureFlags.find(
+          f => (where.id && f.id === where.id) || (where.key && f.key === where.key),
+        ) || null
+      );
+    },
+    create: async ({ data }: any) => {
+      const item = {
+        id: data.id || `ff-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        key: data.key,
+        description: data.description || null,
+        enabled: data.enabled ?? true,
+        updatedAt: new Date(),
+      };
+      memoryStore.featureFlags.push(item);
+      return item;
+    },
+    update: async ({ where, data }: any) => {
+      const existing = memoryStore.featureFlags.find(
+        f => (where.id && f.id === where.id) || (where.key && f.key === where.key),
+      );
+      if (!existing) {
+        const err: any = new Error('Record not found');
+        err.code = 'P2025';
+        throw err;
+      }
+      Object.assign(existing, data, { updatedAt: new Date() });
+      return existing;
+    },
+    upsert: async ({ where, update, create }: any) => {
+      const existing = memoryStore.featureFlags.find(
+        f => (where.id && f.id === where.id) || (where.key && f.key === where.key),
+      );
+      if (existing) {
+        Object.assign(existing, update, { updatedAt: new Date() });
+        return existing;
+      }
+      return memoryClient.featureFlag.create({ data: create });
+    },
+    delete: async ({ where }: any) => {
+      const idx = memoryStore.featureFlags.findIndex(
+        f => (where.id && f.id === where.id) || (where.key && f.key === where.key),
+      );
+      if (idx === -1) {
+        const err: any = new Error('Record not found');
+        err.code = 'P2025';
+        throw err;
+      }
+      const [removed] = memoryStore.featureFlags.splice(idx, 1);
       return removed;
     },
   },

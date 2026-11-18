@@ -67,6 +67,9 @@ export interface Movie {
   hlsUrl?: string;
   genres: string[];
   cast: string[];
+  interpreterSlug?: string;
+  interpreterName?: string;
+  badgeIndicator?: 'NEW' | 'UPDATED' | null;
   createdAt: string;
   rights?: ContentRights;
 }
@@ -81,6 +84,8 @@ export interface Episode {
   thumbnailUrl: string;
   videoUrl: string;
   hlsUrl?: string;
+  interpreterSlug?: string;
+  interpreterName?: string;
   state: ContentState;
 }
 
@@ -115,8 +120,67 @@ export interface Series {
   trailerUrl: string;
   genres: string[];
   seasons: Season[];
+  interpreterSlug?: string;
+  interpreterName?: string;
+  badgeIndicator?: 'NEW' | 'UPDATED' | null;
   createdAt: string;
   rights?: ContentRights;
+}
+
+export interface Interpreter {
+  id: string;
+  displayName: string;
+  slug: string;
+  photoUrl: string;
+  biography: string;
+  socialLinks: {
+    youtube?: string;
+    instagram?: string;
+    tiktok?: string;
+    x?: string;
+    website?: string;
+  };
+  specialtyGenres: string[];
+  isFeatured: boolean;
+  isExampleProfile: boolean;
+  active: boolean;
+  createdAt: string;
+  publishedMovies?: Movie[];
+  publishedSeries?: Series[];
+  movieCount?: number;
+  seriesCount?: number;
+  totalContentCount?: number;
+}
+
+export interface VipBenefit {
+  id: string;
+  key: string;
+  title: string;
+  titleRw: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface VipPlan {
+  id: string;
+  name: string;
+  nameRw: string;
+  durationDays: number;
+  priceRwf: number;
+  priceUsd: number;
+  badgeText?: string;
+  popular?: boolean;
+  active: boolean;
+}
+
+export interface VipConfig {
+  vipEnabled: boolean;
+  freeViewingGuaranteed: boolean;
+  adFreeForVip: boolean;
+  reducedAdsForVip: boolean;
+  plans: VipPlan[];
+  benefits: VipBenefit[];
+  updatedAt: string;
 }
 
 export interface WatchProgress {

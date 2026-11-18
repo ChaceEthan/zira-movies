@@ -48,6 +48,7 @@ export interface Movie {
   durationMinutes: number;
   maturityRating: string;
   language: string;
+  country?: string;
   subtitlesAvailable: string[];
   isFeatured: boolean;
   isTrending: boolean;

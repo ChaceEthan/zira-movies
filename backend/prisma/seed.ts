@@ -1,7 +1,13 @@
 import { AdPlacementType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import prisma from './prisma';
-import { SEED_GENRES, ALL_SEED_MOVIES, SEED_SERIES } from '../src/catalogSeedData';
+import {
+  SEED_GENRES,
+  ALL_SEED_MOVIES,
+  SEED_SERIES,
+  LEGACY_REMOVED_MOVIE_SLUGS,
+  LEGACY_REMOVED_SERIES_SLUGS,
+} from '../src/catalogSeedData';
 
 const AD_PLACEMENTS: AdPlacementType[] = [
   'HOME_BETWEEN_RAILS',
@@ -14,7 +20,12 @@ const AD_PLACEMENTS: AdPlacementType[] = [
   'FOOTER_BANNER',
 ];
 
-export async function seedDatabase(): Promise<{ moviesSeeded: number; seriesSeeded: number; genresSeeded: number }> {
+export async function seedDatabase(): Promise<{
+  moviesSeeded: number;
+  seriesSeeded: number;
+  genresSeeded: number;
+  legacyRemoved: number;
+}> {
   // 1. Seed AdPlacement records idempotently
   for (const type of AD_PLACEMENTS) {
     await prisma.adPlacement.upsert({
@@ -41,11 +52,54 @@ export async function seedDatabase(): Promise<{ moviesSeeded: number; seriesSeed
     });
   }
 
-  // 3. Seed 32 Movies idempotently (do not overwrite existing admin edits except ensuring published demo catalog exists)
+  // 3. Remove obsolete fictional seeded movies and series (preserving any admin-uploaded records)
+  let legacyRemoved = 0;
+  if (typeof (prisma.movie as any).deleteMany === 'function') {
+    const deletedMovies = await (prisma.movie as any).deleteMany({
+      where: { slug: { in: LEGACY_REMOVED_MOVIE_SLUGS } },
+    });
+    legacyRemoved += deletedMovies?.count || 0;
+  }
+  if (typeof (prisma.series as any).deleteMany === 'function') {
+    await (prisma.series as any).deleteMany({
+      where: { slug: { in: LEGACY_REMOVED_SERIES_SLUGS } },
+    });
+  }
+
+  // 4. Seed the 6 curated open-licensed / demo movies idempotently
   for (const movie of ALL_SEED_MOVIES) {
     await prisma.movie.upsert({
       where: { slug: movie.slug },
-      update: {},
+      update: {
+        title: movie.title,
+        description: movie.description,
+        releaseYear: movie.releaseYear,
+        durationMinutes: movie.durationMinutes,
+        maturityRating: movie.maturityRating,
+        language: movie.language,
+        subtitlesAvailable: movie.subtitlesAvailable,
+        posterUrl: movie.posterUrl,
+        backdropUrl: movie.backdropUrl,
+        trailerUrl: movie.trailerUrl,
+        videoUrl: movie.videoUrl,
+        contentRights: {
+          upsert: {
+            create: {
+              rightsStatus: movie.rightsStatus,
+              rightsHolder: movie.rightsHolder,
+              licenseReference: movie.licenseReference,
+              territories: movie.territories,
+              rightsStartDate: new Date(Date.now() - 86400000 * 7),
+            },
+            update: {
+              rightsStatus: movie.rightsStatus,
+              rightsHolder: movie.rightsHolder,
+              licenseReference: movie.licenseReference,
+              territories: movie.territories,
+            },
+          },
+        },
+      },
       create: {
         title: movie.title,
         slug: movie.slug,
@@ -78,7 +132,8 @@ export async function seedDatabase(): Promise<{ moviesSeeded: number; seriesSeed
           create: {
             rightsStatus: movie.rightsStatus,
             rightsHolder: movie.rightsHolder,
-            territories: ['GLOBAL', 'RW'],
+            licenseReference: movie.licenseReference,
+            territories: movie.territories,
             rightsStartDate: new Date(Date.now() - 86400000 * 7),
           },
         },
@@ -86,7 +141,7 @@ export async function seedDatabase(): Promise<{ moviesSeeded: number; seriesSeed
     });
   }
 
-  // 4. Seed 12 Series with Seasons & Episodes idempotently
+  // 5. Seed curated open-media demo Series with Seasons & Episodes idempotently
   for (const ser of SEED_SERIES) {
     const upsertedSeries = await prisma.series.upsert({
       where: { slug: ser.slug },
@@ -119,6 +174,7 @@ export async function seedDatabase(): Promise<{ moviesSeeded: number; seriesSeed
           create: {
             rightsStatus: ser.rightsStatus,
             rightsHolder: ser.rightsHolder,
+            licenseReference: ser.licenseReference,
             territories: ['GLOBAL', 'RW'],
             rightsStartDate: new Date(Date.now() - 86400000 * 7),
           },
@@ -167,7 +223,7 @@ export async function seedDatabase(): Promise<{ moviesSeeded: number; seriesSeed
     }
   }
 
-  // 5. Optional secure initial Admin provisioning via environment variables
+  // 6. Optional secure initial Admin provisioning via environment variables
   const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const adminInitialPassword = process.env.ADMIN_INITIAL_PASSWORD;
   if (adminEmail && adminInitialPassword && adminInitialPassword.length >= 10) {
@@ -189,6 +245,7 @@ export async function seedDatabase(): Promise<{ moviesSeeded: number; seriesSeed
     genresSeeded: SEED_GENRES.length,
     moviesSeeded: ALL_SEED_MOVIES.length,
     seriesSeeded: SEED_SERIES.length,
+    legacyRemoved,
   };
 }
 
@@ -196,7 +253,9 @@ const isDirectExecution = process.argv[1]?.includes('seed');
 if (isDirectExecution) {
   seedDatabase()
     .then(summary => {
-      console.log(`ZIRA catalog seeded: ${summary.moviesSeeded} movies, ${summary.seriesSeeded} series, ${summary.genresSeeded} genres.`);
+      console.log(
+        `ZIRA catalog seeded: ${summary.moviesSeeded} movies, ${summary.seriesSeeded} series, ${summary.genresSeeded} genres (removed ${summary.legacyRemoved} obsolete fictional entries).`,
+      );
     })
     .catch(error => {
       console.error('Database seed failed:', error);

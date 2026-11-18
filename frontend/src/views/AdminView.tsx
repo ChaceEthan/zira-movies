@@ -53,11 +53,15 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
   const [movieDraft, setMovieDraft] = useState({
     title: '',
+    slug: '',
     description: '',
     releaseYear: '2025',
     durationMinutes: '110',
     maturityRating: 'PG-13',
     language: 'English',
+    country: 'GLOBAL, RW',
+    subtitlesAvailable: 'en, rw, fr',
+    subtitleUrl: '',
     genres: ['drama'] as string[],
     posterUrl: '',
     backdropUrl: '',
@@ -65,7 +69,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     videoUrl: '',
     rightsStatus: 'OWNED',
     rightsHolder: 'ZIRA Media Platform',
-    state: 'PUBLISHED',
+    licenseReference: '',
+    rightsEndDate: '',
+    state: 'DRAFT',
     isFeatured: false,
     isTrending: false,
     isRwandanContent: true,
@@ -118,11 +124,18 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     id: string;
     parentId?: string;
     title: string;
+    mode?: 'archive' | 'permanent';
   } | null>(null);
 
   // Media Upload state
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStatusText, setUploadStatusText] = useState('');
+  const [lastFailedUpload, setLastFailedUpload] = useState<{
+    file: File;
+    category: string;
+    contentId: string;
+    onSuccess?: (url: string) => void;
+  } | null>(null);
   const [mediaCategory, setMediaCategory] = useState<'movie_video' | 'movie_poster' | 'series_poster' | 'episode_video' | 'episode_thumbnail'>('movie_video');
   const [mediaContentId, setMediaContentId] = useState('catalog-asset');
   const [externalMediaUrl, setExternalMediaUrl] = useState('');
@@ -307,25 +320,52 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     onRefreshData();
   };
 
-  // Upload helper with progress tracking
+  // Upload helper with progress tracking & retry support
   const uploadFileToR2 = async (
     file: File,
     category: string,
     contentId: string,
     extra: Record<string, any> = {},
+    onSuccess?: (url: string) => void,
   ): Promise<string | null> => {
     const isImage = category.includes('poster') || category.includes('backdrop') || category.includes('thumbnail') || category.includes('banner');
-    const maxBytes = isImage ? 10 * 1024 * 1024 : 2 * 1024 * 1024 * 1024;
+    const isSubtitle = category.includes('subtitle');
+    const maxBytes = isImage ? 10 * 1024 * 1024 : isSubtitle ? 5 * 1024 * 1024 : 2 * 1024 * 1024 * 1024;
     if (file.size > maxBytes) {
-      setStatusMsg(isImage ? 'Image files must be 10 MB or smaller.' : 'Video files must be 2 GB or smaller.');
-      return null;
-    }
-    const allowedMime = isImage ? ['image/jpeg', 'image/png', 'image/webp'] : ['video/mp4'];
-    if (!allowedMime.includes(file.type)) {
-      setStatusMsg(isImage ? 'Please select a valid JPEG, PNG, or WebP image.' : 'Please select a valid MP4 video file.');
+      setStatusMsg(
+        isImage
+          ? 'Image files must be 10 MB or smaller.'
+          : isSubtitle
+            ? 'Subtitle files must be 5 MB or smaller.'
+            : 'Video files must be 2 GB or smaller.',
+      );
       return null;
     }
 
+    const effectiveContentType =
+      isSubtitle && (file.name.endsWith('.vtt') || file.type === 'text/vtt')
+        ? 'text/vtt'
+        : isSubtitle && file.name.endsWith('.srt')
+          ? 'application/x-subrip'
+          : file.type;
+
+    const allowedMime = isImage
+      ? ['image/jpeg', 'image/png', 'image/webp']
+      : isSubtitle
+        ? ['text/vtt', 'application/x-subrip', 'text/plain']
+        : ['video/mp4'];
+    if (!allowedMime.includes(effectiveContentType)) {
+      setStatusMsg(
+        isImage
+          ? 'Please select a valid JPEG, PNG, or WebP image.'
+          : isSubtitle
+            ? 'Please select a valid .vtt or .srt subtitle file.'
+            : 'Please select a valid MP4 video file.',
+      );
+      return null;
+    }
+
+    setLastFailedUpload(null);
     setUploadProgress(5);
     setUploadStatusText(`Requesting secure R2 upload URL for ${file.name}…`);
     try {
@@ -335,8 +375,8 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           filename: cleanName,
-          contentType: file.type,
-          contentId: contentId.replace(/[^A-Za-z0-9_-]/g, '-') || 'zira-asset',
+          contentType: effectiveContentType,
+          contentId: contentId.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64) || 'zira-asset',
           contentTypeCategory: category,
           ...extra,
         }),
@@ -352,7 +392,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', presignData.presignedUrl);
-        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.setRequestHeader('Content-Type', effectiveContentType);
         xhr.upload.onprogress = event => {
           if (event.lengthComputable) {
             const pct = Math.min(95, Math.round((event.loaded / event.total) * 70) + 25);
@@ -372,6 +412,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           originalUrl: presignData.publicUrl,
+          movieId: editingMovieId || undefined,
           fileSizeBytes: file.size,
         }),
       });
@@ -379,6 +420,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       setUploadProgress(100);
       setUploadStatusText('Upload complete!');
       setStatusMsg(`Uploaded ${file.name} to Cloudflare R2.`);
+      if (onSuccess) onSuccess(presignData.publicUrl as string);
       void fetchMediaAssets();
       setTimeout(() => {
         setUploadProgress(null);
@@ -388,6 +430,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     } catch (error: any) {
       setUploadProgress(null);
       setUploadStatusText('');
+      setLastFailedUpload({ file, category, contentId, onSuccess });
       setStatusMsg(error.message || 'Upload failed.');
       return null;
     }
@@ -396,13 +439,18 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   // Movie Actions
   const openAddMovieModal = () => {
     setEditingMovieId(null);
+    setLastFailedUpload(null);
     setMovieDraft({
       title: '',
+      slug: '',
       description: '',
-      releaseYear: '2025',
+      releaseYear: String(new Date().getFullYear()),
       durationMinutes: '110',
       maturityRating: 'PG-13',
       language: 'English',
+      country: 'GLOBAL, RW',
+      subtitlesAvailable: 'en, rw, fr',
+      subtitleUrl: '',
       genres: ['drama'],
       posterUrl: '',
       backdropUrl: '',
@@ -410,7 +458,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       videoUrl: '',
       rightsStatus: 'OWNED',
       rightsHolder: 'ZIRA Media Platform',
-      state: 'PUBLISHED',
+      licenseReference: '',
+      rightsEndDate: '',
+      state: 'DRAFT',
       isFeatured: false,
       isTrending: false,
       isRwandanContent: true,
@@ -421,13 +471,18 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
 
   const openEditMovieModal = (m: Movie) => {
     setEditingMovieId(m.id);
+    setLastFailedUpload(null);
     setMovieDraft({
       title: m.title,
+      slug: m.slug || '',
       description: m.description,
       releaseYear: String(m.releaseYear),
       durationMinutes: String(m.durationMinutes),
       maturityRating: m.maturityRating || 'PG-13',
       language: m.language || 'English',
+      country: m.rights?.territories?.length ? m.rights.territories.join(', ') : m.country || 'GLOBAL, RW',
+      subtitlesAvailable: m.subtitlesAvailable?.length ? m.subtitlesAvailable.join(', ') : 'en',
+      subtitleUrl: '',
       genres: m.genres?.length ? m.genres : ['drama'],
       posterUrl: m.posterUrl || '',
       backdropUrl: m.backdropUrl || '',
@@ -435,7 +490,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       videoUrl: m.videoUrl || '',
       rightsStatus: m.rights?.rightsStatus || 'OWNED',
       rightsHolder: m.rights?.rightsHolder || 'ZIRA Media Platform',
-      state: m.state || 'PUBLISHED',
+      licenseReference: m.rights?.licenseReference || '',
+      rightsEndDate: m.rights?.rightsEndDate ? String(m.rights.rightsEndDate).slice(0, 10) : '',
+      state: m.state || 'DRAFT',
       isFeatured: Boolean(m.isFeatured),
       isTrending: Boolean(m.isTrending),
       isRwandanContent: Boolean(m.isRwandanContent),
@@ -449,6 +506,14 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     try {
       const endpoint = editingMovieId ? `/api/movies/${editingMovieId}` : '/api/movies';
       const method = editingMovieId ? 'PATCH' : 'POST';
+      const territories = movieDraft.country
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      const subtitlesAvailable = movieDraft.subtitlesAvailable
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
       const res = await apiFetch(endpoint, {
         method,
         headers: {
@@ -457,8 +522,13 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         },
         body: JSON.stringify({
           ...movieDraft,
+          slug: movieDraft.slug.trim() || undefined,
           releaseYear: Number(movieDraft.releaseYear),
           durationMinutes: Number(movieDraft.durationMinutes),
+          territories: territories.length > 0 ? territories : ['GLOBAL', 'RW'],
+          subtitlesAvailable: subtitlesAvailable.length > 0 ? subtitlesAvailable : ['en'],
+          licenseReference: movieDraft.licenseReference.trim() || null,
+          rightsEndDate: movieDraft.rightsEndDate ? new Date(movieDraft.rightsEndDate).toISOString() : null,
         }),
       });
       const data = await res.json();
@@ -469,7 +539,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       setShowMovieModal(false);
       setEditingMovieId(null);
       await refreshAll();
-      setStatusMsg(editingMovieId ? 'Movie updated and catalog refreshed.' : `New movie created (${data.movie?.state || 'DRAFT'}).`);
+      setStatusMsg(editingMovieId ? `Updated "${data.movie?.title || movieDraft.title}".` : `Uploaded movie "${data.movie?.title || movieDraft.title}" (${data.movie?.state || 'DRAFT'}).`);
     } catch (err: any) {
       setStatusMsg(err.message || 'Could not save movie.');
     }
@@ -683,11 +753,12 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     }
   };
 
-  const executeConfirmedDelete = async () => {
+  const executeConfirmedDelete = async (overrideMode?: 'archive' | 'permanent') => {
     if (!confirmDelete) return;
     try {
+      const deleteMode = overrideMode || confirmDelete.mode || 'permanent';
       let endpoint = '';
-      if (confirmDelete.type === 'movie') endpoint = `/api/movies/${confirmDelete.id}`;
+      if (confirmDelete.type === 'movie') endpoint = `/api/movies/${confirmDelete.id}?mode=${deleteMode}`;
       else if (confirmDelete.type === 'series') endpoint = `/api/series/${confirmDelete.id}`;
       else if (confirmDelete.type === 'season') endpoint = `/api/series/${confirmDelete.parentId}/seasons/${confirmDelete.id}`;
       else if (confirmDelete.type === 'episode') endpoint = `/api/series/episodes/${confirmDelete.id}`;
@@ -701,7 +772,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       if (!res.ok) {
         setStatusMsg(data.error || 'Delete failed.');
       } else {
-        setStatusMsg(data.message || `${confirmDelete.title} deleted.`);
+        setStatusMsg(data.message || `${confirmDelete.title} removed.`);
         await refreshAll();
       }
     } catch (err: any) {
@@ -983,18 +1054,48 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
           </div>
         </div>
 
-        <button
-          onClick={() => void refreshAll()}
-          className="px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-200 text-xs font-semibold flex items-center gap-1.5 border border-neutral-800"
-        >
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh Data
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => {
+              setActiveTab('movies');
+              openAddMovieModal();
+            }}
+            className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg"
+          >
+            <Upload className="w-3.5 h-3.5" /> Upload Movie
+          </button>
+          <button
+            onClick={() => void refreshAll()}
+            className="px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-200 text-xs font-semibold flex items-center gap-1.5 border border-neutral-800"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh Data
+          </button>
+        </div>
       </div>
 
       {statusMsg && (
-        <div role="status" className="p-4 rounded-xl bg-neutral-900 border border-neutral-700 text-white text-xs font-semibold flex items-center justify-between lg:col-span-2">
+        <div role="status" className="p-4 rounded-xl bg-neutral-900 border border-neutral-700 text-white text-xs font-semibold flex flex-wrap items-center justify-between gap-3 lg:col-span-2">
           <span>{statusMsg}</span>
-          <button onClick={() => setStatusMsg('')} className="text-neutral-400 hover:text-white"><X className="w-4 h-4" /></button>
+          <div className="flex items-center gap-2">
+            {lastFailedUpload && (
+              <button
+                type="button"
+                onClick={() =>
+                  void uploadFileToR2(
+                    lastFailedUpload.file,
+                    lastFailedUpload.category,
+                    lastFailedUpload.contentId,
+                    {},
+                    lastFailedUpload.onSuccess,
+                  )
+                }
+                className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-[11px]"
+              >
+                Retry Upload ({lastFailedUpload.file.name})
+              </button>
+            )}
+            <button onClick={() => setStatusMsg('')} className="text-neutral-400 hover:text-white"><X className="w-4 h-4" /></button>
+          </div>
         </div>
       )}
 
@@ -1142,14 +1243,16 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
           <div className="flex flex-wrap justify-between items-center gap-3">
             <div>
               <h2 className="text-lg font-bold text-white">Movie Management ({filteredMovies.length} of {adminMovies.length})</h2>
-              <p className="text-xs text-neutral-400">Add, edit, publish, feature, or remove movies in the public catalog</p>
+              <p className="text-xs text-neutral-400">Upload movies to Cloudflare R2, manage licensing rights, publish, archive, or delete</p>
             </div>
-            <button
-              onClick={openAddMovieModal}
-              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg"
-            >
-              <Plus className="w-4 h-4" /> Add New Movie
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={openAddMovieModal}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg"
+              >
+                <Upload className="w-4 h-4" /> Upload Movie
+              </button>
+            </div>
           </div>
 
           {/* Filters */}
@@ -1168,107 +1271,134 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
             >
               <option value="ALL">All States</option>
               <option value="PUBLISHED">PUBLISHED</option>
+              <option value="READY">READY</option>
+              <option value="PROCESSING">PROCESSING</option>
+              <option value="UPLOADED">UPLOADED</option>
               <option value="DRAFT">DRAFT</option>
               <option value="UNPUBLISHED">UNPUBLISHED</option>
+              <option value="ARCHIVED">ARCHIVED</option>
             </select>
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-neutral-800">
-            <table className="w-full min-w-[760px] bg-neutral-900/60 text-left text-xs">
+            <table className="w-full min-w-[860px] bg-neutral-900/60 text-left text-xs">
               <thead className="bg-neutral-950 text-neutral-400 uppercase text-[10px] border-b border-neutral-800">
                 <tr>
-                  <th className="p-3">Title</th>
+                  <th className="p-3">Title & Slug</th>
                   <th className="p-3">Year / Runtime</th>
                   <th className="p-3">Genres</th>
+                  <th className="p-3">Rights Status</th>
                   <th className="p-3">State</th>
                   <th className="p-3">Flags</th>
                   <th className="p-3">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
-                {filteredMovies.map(m => (
-                  <tr key={m.id} className="hover:bg-neutral-800/30">
-                    <td className="p-3 font-bold text-white flex items-center gap-2.5">
-                      <img src={m.posterUrl} alt={m.title} className="w-9 h-12 object-cover rounded bg-neutral-800 shrink-0" />
-                      <div>
-                        <div>{m.title}</div>
-                        <div className="text-[10px] text-neutral-500 font-mono">{m.slug}</div>
-                      </div>
-                    </td>
-                    <td className="p-3 whitespace-nowrap">{m.releaseYear} · {m.durationMinutes}m</td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap gap-1">
-                        {m.genres.slice(0, 3).map(g => (
-                          <span key={g} className="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px]">{g}</span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
-                        m.state === 'PUBLISHED'
-                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                          : 'bg-yellow-950 text-yellow-400 border border-yellow-800'
-                      }`}>
-                        {m.state}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => void handleToggleMovieFlag(m, 'isFeatured')}
-                          title="Toggle Featured Hero"
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                            m.isFeatured ? 'bg-amber-950/80 text-amber-300 border-amber-700' : 'bg-neutral-900 text-neutral-500 border-neutral-800'
+                {filteredMovies.map(m => {
+                  const rStatus = m.rights?.rightsStatus || 'OWNED';
+                  return (
+                    <tr key={m.id} className="hover:bg-neutral-800/30">
+                      <td className="p-3 font-bold text-white flex items-center gap-2.5">
+                        <img src={m.posterUrl} alt={m.title} className="w-9 h-12 object-cover rounded bg-neutral-800 shrink-0" />
+                        <div>
+                          <div>{m.title}</div>
+                          <div className="text-[10px] text-neutral-500 font-mono">{m.slug}</div>
+                          <div className="text-[10px] text-neutral-400 font-normal">
+                            {m.language} · {m.maturityRating}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3 whitespace-nowrap">{m.releaseYear} · {m.durationMinutes}m</td>
+                      <td className="p-3">
+                        <div className="flex flex-wrap gap-1">
+                          {m.genres.slice(0, 3).map(g => (
+                            <span key={g} className="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px]">{g}</span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                            rStatus === 'PENDING_VERIFICATION' || rStatus === 'EXPIRED'
+                              ? 'bg-red-950 text-red-300 border border-red-800'
+                              : 'bg-sky-950 text-sky-300 border border-sky-800'
                           }`}
                         >
-                          <Star className="w-3 h-3 inline mr-0.5" /> Hero
-                        </button>
-                        <button
-                          onClick={() => void handleToggleMovieFlag(m, 'isTrending')}
-                          title="Toggle Trending"
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                            m.isTrending ? 'bg-red-950/80 text-red-300 border-red-800' : 'bg-neutral-900 text-neutral-500 border-neutral-800'
-                          }`}
-                        >
-                          Trending
-                        </button>
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-1.5">
-                        {m.state !== 'PUBLISHED' ? (
-                          <button
-                            onClick={() => void handlePublishMovie(m.id, 'PUBLISHED')}
-                            className="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[10px]"
-                          >
-                            Publish
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => void handlePublishMovie(m.id, 'UNPUBLISHED')}
-                            className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-[10px]"
-                          >
-                            Unpublish
-                          </button>
+                          {rStatus}
+                        </span>
+                        {m.rights?.licenseReference && (
+                          <div className="text-[10px] text-neutral-500 font-mono mt-0.5">{m.rights.licenseReference}</div>
                         )}
-                        <button
-                          onClick={() => openEditMovieModal(m)}
-                          className="p-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200"
-                          title={`Edit ${m.title}`}
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setConfirmDelete({ type: 'movie', id: m.id, title: m.title })}
-                          className="p-1.5 rounded bg-red-950/60 hover:bg-red-900 text-red-300"
-                          title={`Delete ${m.title}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                          m.state === 'PUBLISHED'
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                            : m.state === 'ARCHIVED'
+                              ? 'bg-neutral-800 text-neutral-400 border border-neutral-700'
+                              : 'bg-yellow-950 text-yellow-400 border border-yellow-800'
+                        }`}>
+                          {m.state}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => void handleToggleMovieFlag(m, 'isFeatured')}
+                            title="Toggle Featured Hero"
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              m.isFeatured ? 'bg-amber-950/80 text-amber-300 border-amber-700' : 'bg-neutral-900 text-neutral-500 border-neutral-800'
+                            }`}
+                          >
+                            <Star className="w-3 h-3 inline mr-0.5" /> Hero
+                          </button>
+                          <button
+                            onClick={() => void handleToggleMovieFlag(m, 'isTrending')}
+                            title="Toggle Trending"
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              m.isTrending ? 'bg-red-950/80 text-red-300 border-red-800' : 'bg-neutral-900 text-neutral-500 border-neutral-800'
+                            }`}
+                          >
+                            Trending
+                          </button>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-1.5">
+                          {m.state !== 'PUBLISHED' ? (
+                            <button
+                              onClick={() => void handlePublishMovie(m.id, 'PUBLISHED')}
+                              className="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[10px]"
+                            >
+                              Publish
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => void handlePublishMovie(m.id, 'UNPUBLISHED')}
+                              className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-[10px]"
+                            >
+                              Unpublish
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openEditMovieModal(m)}
+                            className="p-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200"
+                            title={`Edit ${m.title}`}
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete({ type: 'movie', id: m.id, title: m.title, mode: 'archive' })}
+                            className="p-1.5 rounded bg-red-950/60 hover:bg-red-900 text-red-300"
+                            title={`Delete or Archive ${m.title}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1838,137 +1968,421 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         </div>
       )}
 
-      {/* ADD / EDIT MOVIE MODAL */}
+      {/* UPLOAD / EDIT MOVIE MODAL */}
       {showMovieModal && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl space-y-4 overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-white">{editingMovieId ? 'Edit Movie' : 'Add New Movie'}</h3>
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-3xl space-y-5 overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+            <div className="flex justify-between items-center border-b border-neutral-800 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-white">{editingMovieId ? 'Edit Movie & Media' : 'Upload New Movie'}</h3>
+                <p className="text-xs text-neutral-400">Complete metadata, Cloudflare R2 media uploads, and licensing verification</p>
+              </div>
               <button onClick={() => setShowMovieModal(false)} className="text-neutral-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
-            <form onSubmit={handleSaveMovie} className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="sm:col-span-2">
-                <label className="text-neutral-300 block mb-1">Movie Title</label>
-                <input required type="text" value={movieDraft.title} onChange={e => setMovieDraft(prev => ({ ...prev, title: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+
+            <form onSubmit={handleSaveMovie} className="space-y-5 text-xs">
+              {/* SECTION A: MOVIE INFORMATION */}
+              <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 space-y-3">
+                <div className="font-bold text-white text-sm flex items-center gap-2">
+                  <Film className="w-4 h-4 text-red-500" /> A. Movie Information
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Movie Title *</label>
+                    <input
+                      required
+                      type="text"
+                      value={movieDraft.title}
+                      onChange={e => {
+                        const title = e.target.value;
+                        const autoSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+                        setMovieDraft(prev => ({
+                          ...prev,
+                          title,
+                          slug: !editingMovieId && (!prev.slug || prev.slug === prev.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')) ? autoSlug : prev.slug,
+                        }));
+                      }}
+                      placeholder="e.g. Big Buck Bunny"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">URL Slug</label>
+                    <input
+                      type="text"
+                      value={movieDraft.slug}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, slug: e.target.value }))}
+                      placeholder="auto-generated-from-title"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white font-mono"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-neutral-300 block mb-1">Synopsis / Description *</label>
+                    <textarea
+                      required
+                      value={movieDraft.description}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, description: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white h-20"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Release Year *</label>
+                    <input
+                      required
+                      type="number"
+                      min="1900"
+                      max="2100"
+                      value={movieDraft.releaseYear}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, releaseYear: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Runtime (Minutes) *</label>
+                    <input
+                      required
+                      type="number"
+                      min="1"
+                      value={movieDraft.durationMinutes}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, durationMinutes: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Language</label>
+                    <input
+                      type="text"
+                      value={movieDraft.language}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, language: e.target.value }))}
+                      placeholder="English, Kinyarwanda, French"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Country / Allowed Territories</label>
+                    <input
+                      type="text"
+                      value={movieDraft.country}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, country: e.target.value }))}
+                      placeholder="GLOBAL, RW"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Age / Maturity Rating</label>
+                    <select
+                      value={movieDraft.maturityRating}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, maturityRating: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    >
+                      <option value="G">G (All Ages)</option>
+                      <option value="PG">PG</option>
+                      <option value="PG-13">PG-13</option>
+                      <option value="16+">16+</option>
+                      <option value="R">R / 18+</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Publication State</label>
+                    <select
+                      value={movieDraft.state}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, state: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    >
+                      <option value="DRAFT">DRAFT</option>
+                      <option value="UPLOADED">UPLOADED</option>
+                      <option value="PROCESSING">PROCESSING</option>
+                      <option value="READY">READY</option>
+                      <option value="PUBLISHED">PUBLISHED</option>
+                      <option value="UNPUBLISHED">UNPUBLISHED</option>
+                      <option value="ARCHIVED">ARCHIVED</option>
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-neutral-300 block mb-1">Genres & Categories</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {AVAILABLE_GENRES.map(g => {
+                        const selected = movieDraft.genres.includes(g);
+                        return (
+                          <button
+                            type="button"
+                            key={g}
+                            onClick={() =>
+                              setMovieDraft(prev => ({
+                                ...prev,
+                                genres: selected ? prev.genres.filter(item => item !== g) : [...prev.genres, g],
+                              }))
+                            }
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
+                              selected ? 'bg-red-600 text-white border-red-500' : 'bg-neutral-900 text-neutral-400 border-neutral-700'
+                            }`}
+                          >
+                            {g}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="sm:col-span-2 flex flex-wrap gap-4 pt-1">
+                    <label className="flex items-center gap-2 text-neutral-300">
+                      <input type="checkbox" checked={movieDraft.isFeatured} onChange={e => setMovieDraft(prev => ({ ...prev, isFeatured: e.target.checked }))} />
+                      Featured on Homepage Hero
+                    </label>
+                    <label className="flex items-center gap-2 text-neutral-300">
+                      <input type="checkbox" checked={movieDraft.isTrending} onChange={e => setMovieDraft(prev => ({ ...prev, isTrending: e.target.checked }))} />
+                      Trending Rail
+                    </label>
+                    <label className="flex items-center gap-2 text-neutral-300">
+                      <input type="checkbox" checked={movieDraft.isRwandanContent} onChange={e => setMovieDraft(prev => ({ ...prev, isRwandanContent: e.target.checked }))} />
+                      Rwandan Cinema
+                    </label>
+                    <label className="flex items-center gap-2 text-neutral-300">
+                      <input type="checkbox" checked={movieDraft.isAfricanContent} onChange={e => setMovieDraft(prev => ({ ...prev, isAfricanContent: e.target.checked }))} />
+                      African Cinema
+                    </label>
+                  </div>
+                </div>
               </div>
-              <div className="sm:col-span-2">
-                <label className="text-neutral-300 block mb-1">Description</label>
-                <textarea required value={movieDraft.description} onChange={e => setMovieDraft(prev => ({ ...prev, description: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white h-20" />
-              </div>
-              <div>
-                <label className="text-neutral-300 block mb-1">Release Year</label>
-                <input type="number" value={movieDraft.releaseYear} onChange={e => setMovieDraft(prev => ({ ...prev, releaseYear: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
-              </div>
-              <div>
-                <label className="text-neutral-300 block mb-1">Duration (Mins)</label>
-                <input type="number" value={movieDraft.durationMinutes} onChange={e => setMovieDraft(prev => ({ ...prev, durationMinutes: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
-              </div>
-              <div>
-                <label className="text-neutral-300 block mb-1">Language</label>
-                <input type="text" value={movieDraft.language} onChange={e => setMovieDraft(prev => ({ ...prev, language: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
-              </div>
-              <div>
-                <label className="text-neutral-300 block mb-1">Maturity Rating</label>
-                <select value={movieDraft.maturityRating} onChange={e => setMovieDraft(prev => ({ ...prev, maturityRating: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white">
-                  <option value="G">G</option>
-                  <option value="PG">PG</option>
-                  <option value="PG-13">PG-13</option>
-                  <option value="R">R</option>
-                </select>
-              </div>
-              <div className="sm:col-span-2">
-                <label className="text-neutral-300 block mb-1">Genres & Categories</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {AVAILABLE_GENRES.map(g => {
-                    const selected = movieDraft.genres.includes(g);
-                    return (
-                      <button
-                        type="button"
-                        key={g}
-                        onClick={() =>
-                          setMovieDraft(prev => ({
-                            ...prev,
-                            genres: selected ? prev.genres.filter(item => item !== g) : [...prev.genres, g],
-                          }))
+
+              {/* SECTION B: UPLOAD MOVIE IMAGES TO CLOUDFLARE R2 */}
+              <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 space-y-3">
+                <div className="font-bold text-white text-sm flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-red-500" /> B. Movie Poster & Backdrop Images (Cloudflare R2)
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-neutral-300 block">Poster Image (Vertical 2:3 — JPEG, PNG, WebP)</label>
+                    <input
+                      type="text"
+                      value={movieDraft.posterUrl}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, posterUrl: e.target.value }))}
+                      placeholder="https://… or upload file below"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={async e => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          const targetId = editingMovieId || movieDraft.slug || movieDraft.title || 'movie';
+                          await uploadFileToR2(f, 'movie_poster', targetId, {}, url => {
+                            setMovieDraft(prev => ({ ...prev, posterUrl: url, backdropUrl: prev.backdropUrl || url }));
+                          });
                         }
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
-                          selected ? 'bg-red-600 text-white border-red-500' : 'bg-neutral-800 text-neutral-400 border-neutral-700'
-                        }`}
-                      >
-                        {g}
-                      </button>
-                    );
-                  })}
+                      }}
+                      className="block w-full text-[11px] text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2.5 file:py-1 file:text-white"
+                    />
+                    {movieDraft.posterUrl && (
+                      <div className="pt-1 flex items-center gap-2">
+                        <img src={movieDraft.posterUrl} alt="Poster preview" className="w-12 h-16 object-cover rounded border border-neutral-700" />
+                        <span className="text-[10px] text-emerald-400">Poster preview ready</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-neutral-300 block">Backdrop / Hero Banner Image (16:9 — JPEG, PNG, WebP)</label>
+                    <input
+                      type="text"
+                      value={movieDraft.backdropUrl}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, backdropUrl: e.target.value }))}
+                      placeholder="https://… or upload file below"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={async e => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          const targetId = editingMovieId || movieDraft.slug || movieDraft.title || 'movie';
+                          await uploadFileToR2(f, 'movie_backdrop', targetId, {}, url => {
+                            setMovieDraft(prev => ({ ...prev, backdropUrl: url }));
+                          });
+                        }
+                      }}
+                      className="block w-full text-[11px] text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2.5 file:py-1 file:text-white"
+                    />
+                    {movieDraft.backdropUrl && (
+                      <div className="pt-1 flex items-center gap-2">
+                        <img src={movieDraft.backdropUrl} alt="Backdrop preview" className="w-24 h-14 object-cover rounded border border-neutral-700" />
+                        <span className="text-[10px] text-emerald-400">Backdrop preview ready</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div>
-                <label className="text-neutral-300 block mb-1">Poster Image URL</label>
-                <input type="text" value={movieDraft.posterUrl} onChange={e => setMovieDraft(prev => ({ ...prev, posterUrl: e.target.value }))} placeholder="https://… or upload below" className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={async e => {
-                    const f = e.target.files?.[0];
-                    if (f) {
-                      const url = await uploadFileToR2(f, 'movie_poster', editingMovieId || movieDraft.title || 'movie');
-                      if (url) setMovieDraft(prev => ({ ...prev, posterUrl: url, backdropUrl: prev.backdropUrl || url }));
-                    }
-                  }}
-                  className="mt-1 block w-full text-[11px] text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2 file:py-1 file:text-white"
-                />
-              </div>
-              <div>
-                <label className="text-neutral-300 block mb-1">Video Stream URL (MP4/HLS)</label>
-                <input type="text" value={movieDraft.videoUrl} onChange={e => setMovieDraft(prev => ({ ...prev, videoUrl: e.target.value }))} placeholder="https://… or upload MP4 below" className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
-                <input
-                  type="file"
-                  accept="video/mp4"
-                  onChange={async e => {
-                    const f = e.target.files?.[0];
-                    if (f) {
-                      const url = await uploadFileToR2(f, 'movie_video', editingMovieId || movieDraft.title || 'movie');
-                      if (url) setMovieDraft(prev => ({ ...prev, videoUrl: url }));
-                    }
-                  }}
-                  className="mt-1 block w-full text-[11px] text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2 file:py-1 file:text-white"
-                />
-              </div>
-              <div>
-                <label className="text-neutral-300 block mb-1">Trailer URL</label>
-                <input type="text" value={movieDraft.trailerUrl} onChange={e => setMovieDraft(prev => ({ ...prev, trailerUrl: e.target.value }))} placeholder="https://…" className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
-              </div>
-              <div>
-                <label className="text-neutral-300 block mb-1">Rights Status & Publication</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <select value={movieDraft.rightsStatus} onChange={e => setMovieDraft(prev => ({ ...prev, rightsStatus: e.target.value }))} className="px-2 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white">
-                    {['OWNED', 'LICENSED', 'PERMISSION_GRANTED', 'PUBLIC_DOMAIN', 'PENDING_VERIFICATION'].map(r => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
-                  <select value={movieDraft.state} onChange={e => setMovieDraft(prev => ({ ...prev, state: e.target.value }))} className="px-2 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white">
-                    <option value="PUBLISHED">PUBLISHED</option>
-                    <option value="DRAFT">DRAFT</option>
-                    <option value="UNPUBLISHED">UNPUBLISHED</option>
-                  </select>
+
+              {/* SECTION C: UPLOAD MOVIE VIDEO & SUBTITLES TO CLOUDFLARE R2 */}
+              <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 space-y-3">
+                <div className="font-bold text-white text-sm flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-red-500" /> C. Video Stream & Subtitles (Cloudflare R2 Object Storage)
+                </div>
+                <p className="text-[11px] text-neutral-400">
+                  Cloudflare R2 stores and serves original MP4 streams directly (<span className="text-neutral-200 font-semibold">READY</span> upon upload). R2 does not automatically transcode HLS renditions unless an external transcoding pipeline is attached.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-neutral-300 block">Primary Movie Video Stream (MP4)</label>
+                    <input
+                      type="text"
+                      value={movieDraft.videoUrl}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, videoUrl: e.target.value }))}
+                      placeholder="https://… or upload MP4 below"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                    <input
+                      type="file"
+                      accept="video/mp4"
+                      onChange={async e => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          const targetId = editingMovieId || movieDraft.slug || movieDraft.title || 'movie';
+                          await uploadFileToR2(f, 'movie_video', targetId, {}, url => {
+                            setMovieDraft(prev => ({
+                              ...prev,
+                              videoUrl: url,
+                              trailerUrl: prev.trailerUrl || url,
+                              state: prev.state === 'DRAFT' ? 'READY' : prev.state,
+                            }));
+                          });
+                        }
+                      }}
+                      className="block w-full text-[11px] text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2.5 file:py-1 file:text-white"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-neutral-300 block">Trailer Video URL (Optional MP4)</label>
+                    <input
+                      type="text"
+                      value={movieDraft.trailerUrl}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, trailerUrl: e.target.value }))}
+                      placeholder="https://…"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                    <input
+                      type="file"
+                      accept="video/mp4"
+                      onChange={async e => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          const targetId = editingMovieId || movieDraft.slug || movieDraft.title || 'movie';
+                          await uploadFileToR2(f, 'movie_trailer', targetId, {}, url => {
+                            setMovieDraft(prev => ({ ...prev, trailerUrl: url }));
+                          });
+                        }
+                      }}
+                      className="block w-full text-[11px] text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2.5 file:py-1 file:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Subtitle Languages Available (comma-separated)</label>
+                    <input
+                      type="text"
+                      value={movieDraft.subtitlesAvailable}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, subtitlesAvailable: e.target.value }))}
+                      placeholder="en, rw, fr"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Upload Subtitle Track (.vtt / .srt to R2)</label>
+                    <input
+                      type="file"
+                      accept=".vtt,.srt,text/vtt,application/x-subrip,text/plain"
+                      onChange={async e => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          const targetId = editingMovieId || movieDraft.slug || movieDraft.title || 'movie';
+                          await uploadFileToR2(f, 'movie_subtitle', targetId, {}, url => {
+                            setMovieDraft(prev => ({ ...prev, subtitleUrl: url }));
+                          });
+                        }
+                      }}
+                      className="block w-full text-[11px] text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2.5 file:py-1 file:text-white"
+                    />
+                    {movieDraft.subtitleUrl && (
+                      <div className="text-[10px] text-emerald-400 mt-1 truncate">Subtitle uploaded: {movieDraft.subtitleUrl}</div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="sm:col-span-2 flex flex-wrap gap-4 pt-1">
-                <label className="flex items-center gap-2 text-neutral-300">
-                  <input type="checkbox" checked={movieDraft.isFeatured} onChange={e => setMovieDraft(prev => ({ ...prev, isFeatured: e.target.checked }))} />
-                  Featured on Homepage Hero
-                </label>
-                <label className="flex items-center gap-2 text-neutral-300">
-                  <input type="checkbox" checked={movieDraft.isTrending} onChange={e => setMovieDraft(prev => ({ ...prev, isTrending: e.target.checked }))} />
-                  Trending Rail
-                </label>
-                <label className="flex items-center gap-2 text-neutral-300">
-                  <input type="checkbox" checked={movieDraft.isRwandanContent} onChange={e => setMovieDraft(prev => ({ ...prev, isRwandanContent: e.target.checked }))} />
-                  Rwanda & East African Cinema
-                </label>
+
+              {/* SECTION D: MOVIE RIGHTS & LICENSING */}
+              <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 space-y-3">
+                <div className="font-bold text-white text-sm flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-red-500" /> D. Movie Rights & Licensing Verification
+                </div>
+                {(movieDraft.rightsStatus === 'PENDING_VERIFICATION' || movieDraft.rightsStatus === 'EXPIRED') && (
+                  <div className="p-3 rounded-lg bg-amber-950/60 border border-amber-800 text-amber-200 text-[11px]">
+                    Movies with <span className="font-bold">{movieDraft.rightsStatus}</span> rights cannot be published to the public catalog until rights are verified (<span className="font-mono">OWNED</span>, <span className="font-mono">LICENSED</span>, <span className="font-mono">PERMISSION_GRANTED</span>, or <span className="font-mono">PUBLIC_DOMAIN</span>). Save as <span className="font-bold">DRAFT</span> while verification is pending.
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Rights Owner / Studio *</label>
+                    <input
+                      required
+                      type="text"
+                      value={movieDraft.rightsHolder}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, rightsHolder: e.target.value }))}
+                      placeholder="e.g. Blender Foundation (CC-BY 3.0)"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">License / Permission Reference</label>
+                    <input
+                      type="text"
+                      value={movieDraft.licenseReference}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, licenseReference: e.target.value }))}
+                      placeholder="e.g. CC-BY-3.0-BLENDER-2008 or Contract #ZIRA-104"
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Rights Verification Status</label>
+                    <select
+                      value={movieDraft.rightsStatus}
+                      onChange={e => {
+                        const status = e.target.value;
+                        setMovieDraft(prev => ({
+                          ...prev,
+                          rightsStatus: status,
+                          state:
+                            (status === 'PENDING_VERIFICATION' || status === 'EXPIRED') && prev.state === 'PUBLISHED'
+                              ? 'DRAFT'
+                              : prev.state,
+                        }));
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    >
+                      <option value="OWNED">OWNED</option>
+                      <option value="LICENSED">LICENSED</option>
+                      <option value="PERMISSION_GRANTED">PERMISSION_GRANTED</option>
+                      <option value="PUBLIC_DOMAIN">PUBLIC_DOMAIN</option>
+                      <option value="PENDING_VERIFICATION">PENDING_VERIFICATION</option>
+                      <option value="EXPIRED">EXPIRED</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-neutral-300 block mb-1">Rights Expiry Date (Optional)</label>
+                    <input
+                      type="date"
+                      value={movieDraft.rightsEndDate}
+                      onChange={e => setMovieDraft(prev => ({ ...prev, rightsEndDate: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white"
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
+
+              <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowMovieModal(false)} className="px-4 py-2 rounded-xl bg-neutral-800 text-neutral-300">Cancel</button>
-                <button type="submit" className="px-4 py-2 rounded-xl bg-red-600 text-white font-bold">{editingMovieId ? 'Save Movie' : 'Create Movie'}</button>
+                <button type="submit" className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold">
+                  {editingMovieId ? 'Save Movie Changes' : 'Save & Create Movie'}
+                </button>
               </div>
             </form>
           </div>
@@ -2200,19 +2614,51 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       {/* CONFIRMATION DIALOG FOR DESTRUCTIVE ACTIONS */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl border border-red-900/60 bg-neutral-900 p-6 space-y-4 text-xs">
+          <div className="w-full max-w-lg rounded-2xl border border-red-900/60 bg-neutral-900 p-6 space-y-4 text-xs">
             <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
-              <AlertTriangle className="w-5 h-5" /> Confirm Permanent Deletion
+              <AlertTriangle className="w-5 h-5" />{' '}
+              {confirmDelete.type === 'movie' ? `Remove Movie: "${confirmDelete.title}"` : 'Confirm Permanent Deletion'}
             </div>
-            <p className="text-neutral-300 leading-relaxed">
-              Are you sure you want to permanently delete <span className="font-bold text-white">{confirmDelete.title}</span>? This action will immediately update the public catalog and cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
+            {confirmDelete.type === 'movie' ? (
+              <div className="space-y-3 text-neutral-300 leading-relaxed">
+                <p>
+                  Choose how to remove <span className="font-bold text-white">{confirmDelete.title}</span> from the ZIRA catalog:
+                </p>
+                <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-3 space-y-1">
+                  <div className="font-bold text-amber-300">Option 1: Archive Movie (Recommended Soft Delete)</div>
+                  <p className="text-[11px] text-neutral-400">
+                    Immediately hides <span className="text-white font-semibold">{confirmDelete.title}</span> from the public catalog by setting its state to <span className="font-mono">ARCHIVED</span> while preserving database history, analytics, and audit logs.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-red-900/50 bg-red-950/20 p-3 space-y-1">
+                  <div className="font-bold text-red-300">Option 2: Permanent Deletion</div>
+                  <p className="text-[11px] text-neutral-400">
+                    Permanently deletes <span className="text-white font-semibold">{confirmDelete.title}</span> from PostgreSQL and removes its unreferenced Cloudflare R2 media objects (shared R2 assets referenced by other records are safely preserved).
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-neutral-300 leading-relaxed">
+                Are you sure you want to permanently delete <span className="font-bold text-white">{confirmDelete.title}</span>? This action will immediately update the public catalog and cannot be undone.
+              </p>
+            )}
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 rounded-xl bg-neutral-800 text-neutral-300 font-semibold">
                 Cancel
               </button>
-              <button onClick={() => void executeConfirmedDelete()} className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold">
-                Confirm Delete
+              {confirmDelete.type === 'movie' && (
+                <button
+                  onClick={() => void executeConfirmedDelete('archive')}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold"
+                >
+                  Archive Movie
+                </button>
+              )}
+              <button
+                onClick={() => void executeConfirmedDelete('permanent')}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold"
+              >
+                {confirmDelete.type === 'movie' ? 'Permanently Delete' : 'Confirm Delete'}
               </button>
             </div>
           </div>

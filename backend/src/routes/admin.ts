@@ -12,6 +12,7 @@ function formatAdminMovie(movie: any) {
 		: Array.isArray(movie.genres)
 			? movie.genres
 			: [];
+	const rights = movie.contentRights || movie.rights || undefined;
 	return {
 		...movie,
 		posterUrl: movie.posterUrl || '',
@@ -21,7 +22,8 @@ function formatAdminMovie(movie: any) {
 		subtitlesAvailable: Array.isArray(movie.subtitlesAvailable) ? movie.subtitlesAvailable : ['en'],
 		genres: genres.length > 0 ? genres : ['drama'],
 		cast: Array.isArray(movie.cast) ? movie.cast : [],
-		rights: movie.contentRights || movie.rights || undefined,
+		country: Array.isArray(rights?.territories) && rights.territories.length > 0 ? rights.territories.join(', ') : 'GLOBAL',
+		rights,
 	};
 }
 
@@ -176,6 +178,7 @@ router.patch('/rights/:rightsId', async (req: AuthenticatedRequest, res, next) =
 			data: {
 				rightsStatus: req.body.rightsStatus,
 				...(typeof req.body.rightsHolder === 'string' && req.body.rightsHolder.trim() ? { rightsHolder: req.body.rightsHolder.trim() } : {}),
+				...(typeof req.body.licenseReference === 'string' ? { licenseReference: req.body.licenseReference.trim() || null } : {}),
 			},
 		});
 		await prisma.adminAuditLog.create({
@@ -288,11 +291,31 @@ router.delete('/media/:assetId', async (req: AuthenticatedRequest, res, next) =>
 			res.status(404).json({ error: 'Media asset not found.' });
 			return;
 		}
-		if (r2Service.isConfigured() && req.query.objectKey && typeof req.query.objectKey === 'string') {
-			try {
-				await r2Service.deleteObject(req.query.objectKey);
-			} catch (err) {
-				console.warn('Could not delete object from R2:', err);
+		const candidateKey =
+			(typeof req.query.objectKey === 'string' && req.query.objectKey.trim()) ||
+			r2Service.extractObjectKeyFromUrl(asset.sourceKey);
+		if (r2Service.isConfigured() && candidateKey) {
+			const [movies, series] = await Promise.all([
+				prisma.movie.findMany({ select: { posterUrl: true, backdropUrl: true, trailerUrl: true, videoUrl: true } }),
+				prisma.series.findMany({ select: { posterUrl: true, backdropUrl: true, trailerUrl: true } }),
+			]);
+			const isReferenced =
+				movies.some(m =>
+					[m.posterUrl, m.backdropUrl, m.trailerUrl, m.videoUrl].some(
+						u => u === asset.sourceKey || r2Service.extractObjectKeyFromUrl(u) === candidateKey,
+					),
+				) ||
+				series.some(s =>
+					[s.posterUrl, s.backdropUrl, s.trailerUrl].some(
+						u => u === asset.sourceKey || r2Service.extractObjectKeyFromUrl(u) === candidateKey,
+					),
+				);
+			if (!isReferenced) {
+				try {
+					await r2Service.deleteObject(candidateKey);
+				} catch (err) {
+					console.warn('Could not delete object from R2:', err);
+				}
 			}
 		}
 		await prisma.videoAsset.delete({ where: { id: asset.id } });
@@ -302,6 +325,7 @@ router.delete('/media/:assetId', async (req: AuthenticatedRequest, res, next) =>
 				action: 'DELETE_MEDIA_ASSET',
 				entityType: 'VideoAsset',
 				entityId: asset.id,
+				metadata: JSON.stringify({ sourceKey: asset.sourceKey }),
 			},
 		});
 		res.json({ message: 'Media asset removed.' });

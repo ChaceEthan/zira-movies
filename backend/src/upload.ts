@@ -30,12 +30,13 @@ router.post('/presigned-url', authenticateUser, requireRole(['EDITOR', 'ADMIN', 
   const allowedTypes: Record<string, string[]> = {
     movie_poster: ['image/jpeg', 'image/png', 'image/webp'],
     movie_backdrop: ['image/jpeg', 'image/png', 'image/webp'],
+    movie_trailer: ['video/mp4'],
     movie_video: ['video/mp4'],
-    movie_subtitle: ['text/vtt', 'application/x-subrip'],
+    movie_subtitle: ['text/vtt', 'application/x-subrip', 'text/plain'],
     series_poster: ['image/jpeg', 'image/png', 'image/webp'],
     series_backdrop: ['image/jpeg', 'image/png', 'image/webp'],
     episode_video: ['video/mp4'],
-    episode_subtitle: ['text/vtt', 'application/x-subrip'],
+    episode_subtitle: ['text/vtt', 'application/x-subrip', 'text/plain'],
     episode_thumbnail: ['image/jpeg', 'image/png', 'image/webp'],
     sponsor_banner: ['image/jpeg', 'image/png', 'image/webp'],
   };
@@ -51,6 +52,9 @@ router.post('/presigned-url', authenticateUser, requireRole(['EDITOR', 'ADMIN', 
         break;
       case 'movie_backdrop':
         objectKey = r2Service.getMoviePath(contentId, 'backdrop', filename);
+        break;
+      case 'movie_trailer':
+        objectKey = r2Service.getMoviePath(contentId, 'trailer', filename);
         break;
       case 'movie_video':
         objectKey = r2Service.getMoviePath(contentId, 'source', filename);

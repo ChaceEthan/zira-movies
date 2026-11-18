@@ -55,10 +55,10 @@ function createInitialMemoryStore(): MemoryStore {
       seriesId: null,
       rightsStatus: m.rightsStatus,
       rightsHolder: m.rightsHolder,
-      licenseReference: `ZIRA-LIC-${m.releaseYear}-${m.slug.slice(0, 8).toUpperCase()}`,
-      territories: ['GLOBAL', 'RW'],
+      licenseReference: m.licenseReference || `ZIRA-LIC-${m.releaseYear}-${m.slug.slice(0, 8).toUpperCase()}`,
+      territories: m.territories || ['GLOBAL', 'RW'],
       rightsStartDate: new Date(Date.now() - 86400000 * 30),
-      rightsEndDate: null,
+      rightsEndDate: m.rightsEndDate ? new Date(m.rightsEndDate) : null,
       internalNotes: 'Seeded open-licensed / demo catalog entry',
     };
     contentRights.push(rights);
@@ -479,6 +479,15 @@ const memoryClient: any = {
       memoryStore.contentRights = memoryStore.contentRights.filter(r => r.movieId !== removed.id);
       return removed;
     },
+    deleteMany: async ({ where }: any = {}) => {
+      const slugs: string[] = where?.slug?.in || [];
+      if (slugs.length === 0) return { count: 0 };
+      const before = memoryStore.movies.length;
+      const removedIds = new Set(memoryStore.movies.filter(m => slugs.includes(m.slug)).map(m => m.id));
+      memoryStore.movies = memoryStore.movies.filter(m => !slugs.includes(m.slug));
+      memoryStore.contentRights = memoryStore.contentRights.filter(r => !removedIds.has(r.movieId));
+      return { count: before - memoryStore.movies.length };
+    },
   },
   series: {
     count: async (args?: any) => {
@@ -609,6 +618,18 @@ const memoryClient: any = {
       memoryStore.contentRights = memoryStore.contentRights.filter(r => r.seriesId !== removed.id);
       return removed;
     },
+    deleteMany: async ({ where }: any = {}) => {
+      const slugs: string[] = where?.slug?.in || [];
+      if (slugs.length === 0) return { count: 0 };
+      const before = memoryStore.series.length;
+      const removedIds = new Set(memoryStore.series.filter(s => slugs.includes(s.slug)).map(s => s.id));
+      memoryStore.series = memoryStore.series.filter(s => !slugs.includes(s.slug));
+      const seaIds = new Set(memoryStore.seasons.filter(sea => removedIds.has(sea.seriesId)).map(sea => sea.id));
+      memoryStore.seasons = memoryStore.seasons.filter(sea => !removedIds.has(sea.seriesId));
+      memoryStore.episodes = memoryStore.episodes.filter(ep => !seaIds.has(ep.seasonId));
+      memoryStore.contentRights = memoryStore.contentRights.filter(r => !removedIds.has(r.seriesId));
+      return { count: before - memoryStore.series.length };
+    },
   },
   season: {
     findMany: async ({ where }: any = {}) => {
@@ -661,6 +682,7 @@ const memoryClient: any = {
   },
   episode: {
     count: async () => memoryStore.episodes.length,
+    findMany: async () => [...memoryStore.episodes],
     findUnique: async ({ where }: any) => {
       return (
         memoryStore.episodes.find(

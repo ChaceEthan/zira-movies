@@ -3,9 +3,10 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "postinstall": "node scripts/prismaCli.cjs generate",
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/src/server.js",
+    "build": "node scripts/prismaCli.cjs generate && tsc -p tsconfig.build.json",
+    "start": "prisma migrate deploy --schema prisma/schema.prisma && node dist/src/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests prisma scripts",
     "test": "tsx --test tests/api.test.ts",
@@ -24,7 +25,9 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.2.0"
+    "multer": "^2.2.0",
+    "prisma": "^6.15.0",
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
@@ -33,8 +36,6 @@
     "@types/node": "^22.14.0",
     "eslint": "^9.0.0",
     "typescript-eslint": "^8.0.0",
-    "prisma": "^6.15.0",
-    "tsx": "^4.21.0",
     "typescript": "~5.8.2"
   }
 }

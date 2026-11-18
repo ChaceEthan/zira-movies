@@ -8,6 +8,7 @@ interface BrowseViewProps {
   movies: Movie[];
   series: Series[];
   genres: Genre[];
+  initialType?: 'ALL' | 'MOVIES' | 'SERIES';
   initialSearchQuery?: string;
   watchProgressMap?: Record<string, WatchProgress>;
   onSelectContent: (item: Movie | Series) => void;
@@ -20,6 +21,7 @@ export function BrowseView({
   movies,
   series,
   genres,
+  initialType = 'ALL',
   initialSearchQuery = '',
   watchProgressMap = {},
   onSelectContent,
@@ -28,10 +30,18 @@ export function BrowseView({
   myListIds = [],
 }: BrowseViewProps) {
   const [query, setQuery] = useState(initialSearchQuery);
-  const [selectedType, setSelectedType] = useState<'ALL' | 'MOVIES' | 'SERIES'>('ALL');
+  const [selectedType, setSelectedType] = useState<'ALL' | 'MOVIES' | 'SERIES'>(initialType);
   const [selectedGenre, setSelectedGenre] = useState<string>('ALL');
   const [selectedMaturity, setSelectedMaturity] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'newest' | 'rating' | 'views'>('newest');
+
+  React.useEffect(() => {
+    setSelectedType(initialType);
+  }, [initialType]);
+
+  React.useEffect(() => {
+    setQuery(initialSearchQuery);
+  }, [initialSearchQuery]);
 
   const filteredItems = useMemo(() => {
     let list: (Movie | Series)[] = [];

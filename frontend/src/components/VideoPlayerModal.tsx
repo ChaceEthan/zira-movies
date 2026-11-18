@@ -350,8 +350,6 @@ export function VideoPlayerModal({
         </button>
       </div>
 
-      <MonetagAd placement="PLAYER_COMPANION" className="relative z-10 mx-auto max-h-20 w-full max-w-2xl overflow-hidden" />
-
       {/* Bottom Control Bar */}
       <div className={`relative z-20 p-4 lg:p-6 bg-gradient-to-t from-black/95 via-black/60 to-transparent space-y-2 transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
         {/* Progress Timeline Slider */}

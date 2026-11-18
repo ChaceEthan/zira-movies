@@ -6,9 +6,37 @@ import { authenticateUser, requireRole, type AuthenticatedRequest } from '../aut
 const router = Router();
 const admins = ['ADMIN', 'SUPER_ADMIN'];
 const placements = Object.values(AdPlacementType);
+const DEFAULT_MONETAG_ORIGINS =
+	process.env.NODE_ENV === 'test'
+		? []
+		: [
+				'https://alwingulla.com',
+				'https://vemtoutcheeg.com',
+				'https://gizokraijaw.net',
+				'https://upskittyan.com',
+				'https://rtmark.net',
+		  ];
+
 const monetagScriptOrigins = new Set(
-	(process.env.MONETAG_ALLOWED_SCRIPT_ORIGINS || '').split(',').map(origin => origin.trim()).filter(Boolean),
+	[
+		...DEFAULT_MONETAG_ORIGINS,
+		...(process.env.MONETAG_ALLOWED_SCRIPT_ORIGINS || '').split(','),
+	]
+		.map(origin => origin.trim())
+		.filter(Boolean),
 );
+
+async function ensureAdPlacement(placement: AdPlacementType) {
+	await prisma.adPlacement.upsert({
+		where: { type: placement },
+		update: {},
+		create: {
+			type: placement,
+			displayName: placement.replace(/_/g, ' '),
+			active: true,
+		},
+	});
+}
 
 function publicUrl(value: unknown): string | null {
 	if (typeof value !== 'string') return null;
@@ -216,6 +244,7 @@ router.post('/sponsors/:sponsorId/campaigns', authenticateUser, requireRole(admi
 			res.status(400).json({ error: 'A valid creative image URL is required.' });
 			return;
 		}
+		await ensureAdPlacement(placement);
 		const campaign = await prisma.sponsorCampaign.create({
 			data: {
 				sponsorId: req.params.sponsorId,
@@ -353,6 +382,7 @@ router.patch('/monetag/placements/:placement', authenticateUser, requireRole(adm
 			res.status(400).json({ error: 'A Zone ID and verified publisher tag are required before enabling a placement.' });
 			return;
 		}
+		await ensureAdPlacement(placement);
 		const setting = await prisma.monetagPlacementSetting.upsert({
 			where: { placement },
 			create: { placement, enabled: req.body.enabled, zoneId: zoneId || null, scriptUrl, tagCode: tagCode || null },
@@ -449,6 +479,7 @@ router.post('/affiliate/campaigns', authenticateUser, requireRole(admins), async
 			res.status(400).json({ error: 'Provide a partner, campaign name, valid affiliate and creative URLs, date range, and placement.' });
 			return;
 		}
+		await ensureAdPlacement(req.body.placement);
 		const campaign = await prisma.affiliateCampaign.create({ data: { partnerId: req.body.partnerId, campaignName, destinationUrl, trackingUrl, imageUrl, placement: req.body.placement, startDate, endDate } });
 		await prisma.adminAuditLog.create({ data: { adminId: req.auth!.userId, action: 'CREATE_AFFILIATE_CAMPAIGN', entityType: 'AffiliateCampaign', entityId: campaign.id } });
 		res.status(201).json({ campaign });

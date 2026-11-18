@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import {
-  Shield, Film, Tv, DollarSign, BarChart3, Users, Clock,
-  Plus, Check, X, AlertTriangle, Eye, ShieldCheck, Upload,
-  Edit, Trash2, Tag, RefreshCw, FileText, ExternalLink, Sparkles
+  Shield, Film, Tv, DollarSign, BarChart3,
+  Plus, X, AlertTriangle, ShieldCheck, Upload,
+  Edit, Trash2, RefreshCw, FileText, ExternalLink, Sparkles, Star, Layers, HardDrive
 } from 'lucide-react';
-import { Movie, Series, AdminMetrics, ContentRights, Sponsor, SponsorCampaign, AdminAuditLog } from '../types';
+import { Movie, Series, Episode, AdminMetrics, Sponsor, SponsorCampaign, AdminAuditLog } from '../types';
 
 interface AdminViewProps {
   token: string;
@@ -14,9 +14,27 @@ interface AdminViewProps {
   onRefreshData: () => void;
 }
 
+const AVAILABLE_GENRES = [
+  'action',
+  'adventure',
+  'comedy',
+  'drama',
+  'romance',
+  'thriller',
+  'horror',
+  'sci-fi',
+  'animation',
+  'documentary',
+  'african-cinema',
+  'rwandan-cinema',
+];
+
 export function AdminView({ token, movies, series, onRefreshData }: AdminViewProps) {
-  const [activeTab, setActiveTab] = useState<'metrics' | 'movies' | 'series' | 'rights' | 'sponsors' | 'monetag' | 'affiliate' | 'analytics' | 'audit'>('metrics');
+  const [activeTab, setActiveTab] = useState<'metrics' | 'movies' | 'series' | 'media' | 'rights' | 'sponsors' | 'monetag' | 'affiliate' | 'analytics' | 'audit'>('metrics');
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
+  const [adminMovies, setAdminMovies] = useState<Movie[]>(movies);
+  const [adminSeries, setAdminSeries] = useState<Series[]>(series);
+  const [mediaAssets, setMediaAssets] = useState<any[]>([]);
   const [rightsList, setRightsList] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
@@ -26,40 +44,158 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   const [affiliateData, setAffiliateData] = useState<any>({ partners: [], campaigns: [], verifiedRevenue: 0 });
   const [analytics, setAnalytics] = useState<any>(null);
   const [paidInputs, setPaidInputs] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
 
-  // Form states
-  const [showAddMovieModal, setShowAddMovieModal] = useState(false);
-  const [newMovieTitle, setNewMovieTitle] = useState('');
-  const [newMovieDesc, setNewMovieDesc] = useState('');
-  const [newMovieYear, setNewMovieYear] = useState('2025');
-  const [newMovieDuration, setNewMovieDuration] = useState('110');
-  const [newMovieRightsStatus, setNewMovieRightsStatus] = useState('OWNED');
+  // Movie filter & modal states
+  const [movieFilterState, setMovieFilterState] = useState<string>('ALL');
+  const [movieSearch, setMovieSearch] = useState('');
+  const [showMovieModal, setShowMovieModal] = useState(false);
+  const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
+  const [movieDraft, setMovieDraft] = useState({
+    title: '',
+    description: '',
+    releaseYear: '2025',
+    durationMinutes: '110',
+    maturityRating: 'PG-13',
+    language: 'English',
+    genres: ['drama'] as string[],
+    posterUrl: '',
+    backdropUrl: '',
+    trailerUrl: '',
+    videoUrl: '',
+    rightsStatus: 'OWNED',
+    rightsHolder: 'ZIRA Media Platform',
+    state: 'PUBLISHED',
+    isFeatured: false,
+    isTrending: false,
+    isRwandanContent: true,
+    isAfricanContent: true,
+  });
 
+  // Series filter & modal states
+  const [seriesFilterState, setSeriesFilterState] = useState<string>('ALL');
+  const [seriesSearch, setSeriesSearch] = useState('');
+  const [showSeriesModal, setShowSeriesModal] = useState(false);
+  const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
+  const [seriesDraft, setSeriesDraft] = useState({
+    title: '',
+    description: '',
+    releaseYear: '2025',
+    maturityRating: 'PG-13',
+    language: 'English',
+    genres: ['drama'] as string[],
+    posterUrl: '',
+    backdropUrl: '',
+    trailerUrl: '',
+    rightsStatus: 'OWNED',
+    rightsHolder: 'ZIRA Media Platform',
+    state: 'PUBLISHED',
+    isFeatured: false,
+    isTrending: false,
+    isRwandanContent: true,
+    isAfricanContent: true,
+  });
+
+  // Series Seasons & Episodes Manager
+  const [managingSeries, setManagingSeries] = useState<Series | null>(null);
+  const [newSeasonNumber, setNewSeasonNumber] = useState('1');
+  const [newSeasonTitle, setNewSeasonTitle] = useState('Season 1');
+  const [editingEpisode, setEditingEpisode] = useState<Episode | null>(null);
+  const [episodeSeasonId, setEpisodeSeasonId] = useState<string>('');
+  const [episodeDraft, setEpisodeDraft] = useState({
+    episodeNumber: '1',
+    title: '',
+    description: '',
+    durationMinutes: '42',
+    thumbnailUrl: '',
+    videoUrl: '',
+    state: 'PUBLISHED',
+  });
+
+  // Destructive Confirmation Modal state
+  const [confirmDelete, setConfirmDelete] = useState<{
+    type: 'movie' | 'series' | 'season' | 'episode' | 'media';
+    id: string;
+    parentId?: string;
+    title: string;
+  } | null>(null);
+
+  // Media Upload state
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadStatusText, setUploadStatusText] = useState('');
+  const [mediaCategory, setMediaCategory] = useState<'movie_video' | 'movie_poster' | 'series_poster' | 'episode_video' | 'episode_thumbnail'>('movie_video');
+  const [mediaContentId, setMediaContentId] = useState('catalog-asset');
+  const [externalMediaUrl, setExternalMediaUrl] = useState('');
+
+  // Sponsor & Affiliate states
   const [showAddSponsorModal, setShowAddSponsorModal] = useState(false);
   const [sponsorName, setSponsorName] = useState('');
   const [sponsorWebsite, setSponsorWebsite] = useState('');
   const [editingSponsorId, setEditingSponsorId] = useState<string | null>(null);
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
-  const [campaignDraft, setCampaignDraft] = useState({ sponsorId: '', name: '', destinationUrl: '', imageUrl: '', creativeTitle: '', tagline: '', placement: 'HOME_BETWEEN_RAILS', startDate: new Date().toISOString().slice(0, 16), endDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 16), agreedPrice: '0' });
+  const [campaignDraft, setCampaignDraft] = useState({
+    sponsorId: '',
+    name: '',
+    destinationUrl: '',
+    imageUrl: '',
+    creativeTitle: '',
+    tagline: '',
+    placement: 'HOME_BETWEEN_RAILS',
+    startDate: new Date().toISOString().slice(0, 16),
+    endDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 16),
+    agreedPrice: '0',
+  });
   const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
-  const [campaignEdits, setCampaignEdits] = useState<Record<string, any>>({});
   const [showAffiliatePartnerModal, setShowAffiliatePartnerModal] = useState(false);
   const [editingAffiliatePartnerId, setEditingAffiliatePartnerId] = useState<string | null>(null);
   const [affiliatePartnerDraft, setAffiliatePartnerDraft] = useState({ partnerName: '', websiteUrl: '', description: '' });
   const [showAffiliateCampaignModal, setShowAffiliateCampaignModal] = useState(false);
   const [editingAffiliateCampaignId, setEditingAffiliateCampaignId] = useState<string | null>(null);
-  const [affiliateCampaignDraft, setAffiliateCampaignDraft] = useState({ partnerId: '', campaignName: '', destinationUrl: '', trackingUrl: '', imageUrl: '', placement: 'HOME_BOTTOM_BANNER', startDate: new Date().toISOString().slice(0, 16), endDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 16) });
+  const [affiliateCampaignDraft, setAffiliateCampaignDraft] = useState({
+    partnerId: '',
+    campaignName: '',
+    destinationUrl: '',
+    trackingUrl: '',
+    imageUrl: '',
+    placement: 'HOME_BOTTOM_BANNER',
+    startDate: new Date().toISOString().slice(0, 16),
+    endDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 16),
+  });
   const [conversionCampaignId, setConversionCampaignId] = useState('');
   const [conversionDraft, setConversionDraft] = useState({ externalReference: '', commissionRevenue: '', currency: 'USD' });
+  const [previewPlacement, setPreviewPlacement] = useState<string | null>(null);
 
-  const fetchAdminMetrics = async () => {
-    setLoading(true);
+  useEffect(() => {
+    setAdminMovies(movies);
+  }, [movies]);
+
+  useEffect(() => {
+    setAdminSeries(series);
+  }, [series]);
+
+  const fetchAdminCatalog = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/admin/catalog', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.movies)) setAdminMovies(data.movies);
+        if (Array.isArray(data.series)) {
+          setAdminSeries(data.series);
+          setManagingSeries(prev => (prev ? data.series.find((s: Series) => s.id === prev.id) || null : null));
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token]);
+
+  const fetchAdminMetrics = useCallback(async () => {
     try {
       const res = await apiFetch('/api/admin/metrics', {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) {
@@ -68,27 +204,39 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       }
     } catch (e) {
       console.error(e);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [token]);
 
-  const fetchRightsData = async () => {
+  const fetchRightsData = useCallback(async () => {
     try {
       const res = await apiFetch('/api/admin/rights', {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) setRightsList(data.rights || []);
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [token]);
 
-  const fetchSponsorsData = async () => {
+  const fetchMediaAssets = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/admin/media', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMediaAssets(data.assets || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token]);
+
+  const fetchSponsorsData = useCallback(async () => {
     try {
       const res = await apiFetch('/api/monetization/sponsors', {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) {
@@ -98,9 +246,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [token]);
 
-  const fetchMonetagData = async () => {
+  const fetchMonetagData = useCallback(async () => {
     try {
       const res = await apiFetch('/api/monetization/monetag', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
@@ -111,9 +259,9 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [token]);
 
-  const fetchAffiliateData = async () => {
+  const fetchAffiliateData = useCallback(async () => {
     try {
       const res = await apiFetch('/api/monetization/affiliate', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
@@ -121,15 +269,460 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [token]);
 
-  const fetchMonetizationAnalytics = async () => {
+  const fetchMonetizationAnalytics = useCallback(async () => {
     try {
       const res = await apiFetch('/api/monetization/analytics', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) setAnalytics(data);
     } catch (e) {
       console.error(e);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void fetchAdminCatalog();
+    void fetchAdminMetrics();
+    void fetchRightsData();
+    void fetchMediaAssets();
+    void fetchSponsorsData();
+    void fetchMonetagData();
+    void fetchAffiliateData();
+    void fetchMonetizationAnalytics();
+  }, [
+    token,
+    fetchAdminCatalog,
+    fetchAdminMetrics,
+    fetchRightsData,
+    fetchMediaAssets,
+    fetchSponsorsData,
+    fetchMonetagData,
+    fetchAffiliateData,
+    fetchMonetizationAnalytics,
+  ]);
+
+  const refreshAll = async () => {
+    await Promise.all([fetchAdminCatalog(), fetchAdminMetrics(), fetchRightsData(), fetchMediaAssets()]);
+    onRefreshData();
+  };
+
+  // Upload helper with progress tracking
+  const uploadFileToR2 = async (
+    file: File,
+    category: string,
+    contentId: string,
+    extra: Record<string, any> = {},
+  ): Promise<string | null> => {
+    const isImage = category.includes('poster') || category.includes('backdrop') || category.includes('thumbnail') || category.includes('banner');
+    const maxBytes = isImage ? 10 * 1024 * 1024 : 2 * 1024 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setStatusMsg(isImage ? 'Image files must be 10 MB or smaller.' : 'Video files must be 2 GB or smaller.');
+      return null;
+    }
+    const allowedMime = isImage ? ['image/jpeg', 'image/png', 'image/webp'] : ['video/mp4'];
+    if (!allowedMime.includes(file.type)) {
+      setStatusMsg(isImage ? 'Please select a valid JPEG, PNG, or WebP image.' : 'Please select a valid MP4 video file.');
+      return null;
+    }
+
+    setUploadProgress(5);
+    setUploadStatusText(`Requesting secure R2 upload URL for ${file.name}…`);
+    try {
+      const cleanName = `${Date.now()}-${file.name.replace(/[^A-Za-z0-9._-]/g, '-')}`;
+      const presignRes = await apiFetch('/api/upload/presigned-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          filename: cleanName,
+          contentType: file.type,
+          contentId: contentId.replace(/[^A-Za-z0-9_-]/g, '-') || 'zira-asset',
+          contentTypeCategory: category,
+          ...extra,
+        }),
+      });
+      const presignData = await presignRes.json();
+      if (!presignRes.ok) {
+        throw new Error(presignData.error || 'Cloudflare R2 upload is not configured.');
+      }
+
+      setUploadProgress(25);
+      setUploadStatusText(`Uploading ${file.name} to Cloudflare R2…`);
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', presignData.presignedUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.upload.onprogress = event => {
+          if (event.lengthComputable) {
+            const pct = Math.min(95, Math.round((event.loaded / event.total) * 70) + 25);
+            setUploadProgress(pct);
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`R2 upload failed with HTTP ${xhr.status}`));
+        };
+        xhr.onerror = () => reject(new Error('Network error while uploading to Cloudflare R2.'));
+        xhr.send(file);
+      });
+
+      await apiFetch('/api/admin/media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          originalUrl: presignData.publicUrl,
+          fileSizeBytes: file.size,
+        }),
+      });
+
+      setUploadProgress(100);
+      setUploadStatusText('Upload complete!');
+      setStatusMsg(`Uploaded ${file.name} to Cloudflare R2.`);
+      void fetchMediaAssets();
+      setTimeout(() => {
+        setUploadProgress(null);
+        setUploadStatusText('');
+      }, 1500);
+      return presignData.publicUrl as string;
+    } catch (error: any) {
+      setUploadProgress(null);
+      setUploadStatusText('');
+      setStatusMsg(error.message || 'Upload failed.');
+      return null;
+    }
+  };
+
+  // Movie Actions
+  const openAddMovieModal = () => {
+    setEditingMovieId(null);
+    setMovieDraft({
+      title: '',
+      description: '',
+      releaseYear: '2025',
+      durationMinutes: '110',
+      maturityRating: 'PG-13',
+      language: 'English',
+      genres: ['drama'],
+      posterUrl: '',
+      backdropUrl: '',
+      trailerUrl: '',
+      videoUrl: '',
+      rightsStatus: 'OWNED',
+      rightsHolder: 'ZIRA Media Platform',
+      state: 'PUBLISHED',
+      isFeatured: false,
+      isTrending: false,
+      isRwandanContent: true,
+      isAfricanContent: true,
+    });
+    setShowMovieModal(true);
+  };
+
+  const openEditMovieModal = (m: Movie) => {
+    setEditingMovieId(m.id);
+    setMovieDraft({
+      title: m.title,
+      description: m.description,
+      releaseYear: String(m.releaseYear),
+      durationMinutes: String(m.durationMinutes),
+      maturityRating: m.maturityRating || 'PG-13',
+      language: m.language || 'English',
+      genres: m.genres?.length ? m.genres : ['drama'],
+      posterUrl: m.posterUrl || '',
+      backdropUrl: m.backdropUrl || '',
+      trailerUrl: m.trailerUrl || '',
+      videoUrl: m.videoUrl || '',
+      rightsStatus: m.rights?.rightsStatus || 'OWNED',
+      rightsHolder: m.rights?.rightsHolder || 'ZIRA Media Platform',
+      state: m.state || 'PUBLISHED',
+      isFeatured: Boolean(m.isFeatured),
+      isTrending: Boolean(m.isTrending),
+      isRwandanContent: Boolean(m.isRwandanContent),
+      isAfricanContent: Boolean(m.isAfricanContent),
+    });
+    setShowMovieModal(true);
+  };
+
+  const handleSaveMovie = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const endpoint = editingMovieId ? `/api/movies/${editingMovieId}` : '/api/movies';
+      const method = editingMovieId ? 'PATCH' : 'POST';
+      const res = await apiFetch(endpoint, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ...movieDraft,
+          releaseYear: Number(movieDraft.releaseYear),
+          durationMinutes: Number(movieDraft.durationMinutes),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatusMsg(`Error: ${data.error || 'Could not save movie.'}`);
+        return;
+      }
+      setShowMovieModal(false);
+      setEditingMovieId(null);
+      await refreshAll();
+      setStatusMsg(editingMovieId ? 'Movie updated and catalog refreshed.' : `New movie created (${data.movie?.state || 'DRAFT'}).`);
+    } catch (err: any) {
+      setStatusMsg(err.message || 'Could not save movie.');
+    }
+  };
+
+  const handlePublishMovie = async (movieId: string, newState: string) => {
+    setStatusMsg('');
+    try {
+      const res = await apiFetch(`/api/movies/${movieId}/state`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ state: newState }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatusMsg(`Error: ${data.error}`);
+      } else {
+        setStatusMsg(data.message);
+        await refreshAll();
+      }
+    } catch (err: any) {
+      setStatusMsg(`Failed to update state: ${err.message}`);
+    }
+  };
+
+  const handleToggleMovieFlag = async (movie: Movie, field: 'isFeatured' | 'isTrending') => {
+    try {
+      const res = await apiFetch(`/api/movies/${movie.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ [field]: !movie[field] }),
+      });
+      if (res.ok) {
+        await refreshAll();
+        setStatusMsg(`${movie.title} ${field === 'isFeatured' ? 'featured' : 'trending'} status updated.`);
+      }
+    } catch (err: any) {
+      setStatusMsg(err.message);
+    }
+  };
+
+  // Series Actions
+  const openAddSeriesModal = () => {
+    setEditingSeriesId(null);
+    setSeriesDraft({
+      title: '',
+      description: '',
+      releaseYear: '2025',
+      maturityRating: 'PG-13',
+      language: 'English',
+      genres: ['drama'],
+      posterUrl: '',
+      backdropUrl: '',
+      trailerUrl: '',
+      rightsStatus: 'OWNED',
+      rightsHolder: 'ZIRA Media Platform',
+      state: 'PUBLISHED',
+      isFeatured: false,
+      isTrending: false,
+      isRwandanContent: true,
+      isAfricanContent: true,
+    });
+    setShowSeriesModal(true);
+  };
+
+  const openEditSeriesModal = (s: Series) => {
+    setEditingSeriesId(s.id);
+    setSeriesDraft({
+      title: s.title,
+      description: s.description,
+      releaseYear: String(s.releaseYear),
+      maturityRating: s.maturityRating || 'PG-13',
+      language: s.language || 'English',
+      genres: s.genres?.length ? s.genres : ['drama'],
+      posterUrl: s.posterUrl || '',
+      backdropUrl: s.backdropUrl || '',
+      trailerUrl: s.trailerUrl || '',
+      rightsStatus: s.rights?.rightsStatus || 'OWNED',
+      rightsHolder: s.rights?.rightsHolder || 'ZIRA Media Platform',
+      state: s.state || 'PUBLISHED',
+      isFeatured: Boolean(s.isFeatured),
+      isTrending: Boolean(s.isTrending),
+      isRwandanContent: Boolean(s.isRwandanContent),
+      isAfricanContent: Boolean(s.isAfricanContent),
+    });
+    setShowSeriesModal(true);
+  };
+
+  const handleSaveSeries = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const endpoint = editingSeriesId ? `/api/series/${editingSeriesId}` : '/api/series';
+      const method = editingSeriesId ? 'PATCH' : 'POST';
+      const res = await apiFetch(endpoint, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ...seriesDraft,
+          releaseYear: Number(seriesDraft.releaseYear),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatusMsg(`Error: ${data.error || 'Could not save series.'}`);
+        return;
+      }
+      setShowSeriesModal(false);
+      setEditingSeriesId(null);
+      await refreshAll();
+      setStatusMsg(editingSeriesId ? 'Series updated.' : 'Series created.');
+    } catch (err: any) {
+      setStatusMsg(err.message || 'Could not save series.');
+    }
+  };
+
+  const handlePublishSeries = async (seriesId: string, newState: string) => {
+    try {
+      const res = await apiFetch(`/api/series/${seriesId}/state`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ state: newState }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatusMsg(`Error: ${data.error}`);
+      } else {
+        setStatusMsg(data.message);
+        await refreshAll();
+      }
+    } catch (err: any) {
+      setStatusMsg(err.message);
+    }
+  };
+
+  const handleAddSeason = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!managingSeries) return;
+    try {
+      const res = await apiFetch(`/api/series/${managingSeries.id}/seasons`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ seasonNumber: Number(newSeasonNumber), title: newSeasonTitle }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatusMsg(data.error || 'Could not add season.');
+        return;
+      }
+      await refreshAll();
+      setStatusMsg(`Added Season ${newSeasonNumber} to ${managingSeries.title}.`);
+      setNewSeasonNumber(String(Number(newSeasonNumber) + 1));
+      setNewSeasonTitle(`Season ${Number(newSeasonNumber) + 1}`);
+    } catch (err: any) {
+      setStatusMsg(err.message);
+    }
+  };
+
+  const handleSaveEpisode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!managingSeries) return;
+    const targetSeasonId = episodeSeasonId || managingSeries.seasons[0]?.id;
+    if (!targetSeasonId && !editingEpisode) {
+      setStatusMsg('Create a season first before adding episodes.');
+      return;
+    }
+    try {
+      const endpoint = editingEpisode
+        ? `/api/series/episodes/${editingEpisode.id}`
+        : `/api/series/${managingSeries.id}/seasons/${targetSeasonId}/episodes`;
+      const method = editingEpisode ? 'PATCH' : 'POST';
+      const res = await apiFetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ...episodeDraft,
+          episodeNumber: Number(episodeDraft.episodeNumber),
+          durationMinutes: Number(episodeDraft.durationMinutes),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatusMsg(data.error || 'Could not save episode.');
+        return;
+      }
+      setEditingEpisode(null);
+      setEpisodeDraft({
+        episodeNumber: String(Number(episodeDraft.episodeNumber) + 1),
+        title: '',
+        description: '',
+        durationMinutes: '42',
+        thumbnailUrl: '',
+        videoUrl: '',
+        state: 'PUBLISHED',
+      });
+      await refreshAll();
+      setStatusMsg(editingEpisode ? 'Episode updated.' : 'Episode added to season.');
+    } catch (err: any) {
+      setStatusMsg(err.message);
+    }
+  };
+
+  const executeConfirmedDelete = async () => {
+    if (!confirmDelete) return;
+    try {
+      let endpoint = '';
+      if (confirmDelete.type === 'movie') endpoint = `/api/movies/${confirmDelete.id}`;
+      else if (confirmDelete.type === 'series') endpoint = `/api/series/${confirmDelete.id}`;
+      else if (confirmDelete.type === 'season') endpoint = `/api/series/${confirmDelete.parentId}/seasons/${confirmDelete.id}`;
+      else if (confirmDelete.type === 'episode') endpoint = `/api/series/episodes/${confirmDelete.id}`;
+      else if (confirmDelete.type === 'media') endpoint = `/api/admin/media/${confirmDelete.id}`;
+
+      const res = await apiFetch(endpoint, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatusMsg(data.error || 'Delete failed.');
+      } else {
+        setStatusMsg(data.message || `${confirmDelete.title} deleted.`);
+        await refreshAll();
+      }
+    } catch (err: any) {
+      setStatusMsg(err.message || 'Delete failed.');
+    } finally {
+      setConfirmDelete(null);
+    }
+  };
+
+  const handleUpdateRightsStatus = async (rightsId: string, rightsStatus: string) => {
+    try {
+      const res = await apiFetch(`/api/admin/rights/${rightsId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rightsStatus }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Could not update rights status.');
+      await refreshAll();
+      setStatusMsg(`Rights status updated to ${rightsStatus}.`);
+    } catch (err: any) {
+      setStatusMsg(err.message);
     }
   };
 
@@ -142,6 +735,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Could not update placement.');
       await fetchMonetagData();
+      await fetchAdminMetrics();
       setStatusMsg('Monetag placement saved.');
     } catch (error: any) {
       setStatusMsg(error.message || 'Could not update Monetag placement.');
@@ -149,7 +743,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   };
 
   const updateMonetagDraft = (placement: string, changes: Record<string, unknown>) => {
-    setMonetagPlacements(previous => previous.map(item => item.placement === placement ? { ...item, ...changes } : item));
+    setMonetagPlacements(previous => previous.map(item => (item.placement === placement ? { ...item, ...changes } : item)));
   };
 
   const updateSponsorCampaign = async (campaignId: string, changes: Record<string, unknown>) => {
@@ -183,69 +777,6 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     }
   };
 
-  useEffect(() => {
-    fetchAdminMetrics();
-    fetchRightsData();
-    fetchSponsorsData();
-    fetchMonetagData();
-    fetchAffiliateData();
-    fetchMonetizationAnalytics();
-  }, [token]);
-
-  const handlePublishMovie = async (movieId: string, newState: string) => {
-    setStatusMsg('');
-    try {
-      const res = await apiFetch(`/api/movies/${movieId}/state`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ state: newState })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setStatusMsg(`Error: ${data.error}`);
-      } else {
-        setStatusMsg(data.message);
-        onRefreshData();
-      }
-    } catch (err: any) {
-      setStatusMsg(`Failed to update state: ${err.message}`);
-    }
-  };
-
-  const handleCreateMovie = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await apiFetch('/api/movies', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          title: newMovieTitle,
-          description: newMovieDesc,
-          releaseYear: newMovieYear,
-          durationMinutes: newMovieDuration,
-          rightsStatus: newMovieRightsStatus,
-          isRwandanContent: true,
-        })
-      });
-      if (res.ok) {
-        setShowAddMovieModal(false);
-        setNewMovieTitle('');
-        setNewMovieDesc('');
-        onRefreshData();
-        fetchAdminMetrics();
-        setStatusMsg('New movie created cleanly in DRAFT mode');
-      }
-    } catch (err: any) {
-      setStatusMsg(err.message);
-    }
-  };
-
   const handleCreateSponsor = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -253,16 +784,16 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         method: editingSponsorId ? 'PATCH' : 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ name: sponsorName, websiteUrl: sponsorWebsite })
+        body: JSON.stringify({ name: sponsorName, websiteUrl: sponsorWebsite }),
       });
       if (res.ok) {
         setShowAddSponsorModal(false);
         setEditingSponsorId(null);
         setSponsorName('');
         setSponsorWebsite('');
-        fetchSponsorsData();
+        void fetchSponsorsData();
         setStatusMsg(editingSponsorId ? 'Sponsor updated successfully' : 'Sponsor registered successfully');
       } else {
         setStatusMsg((await res.json()).error || 'Could not save sponsor.');
@@ -276,11 +807,19 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     event.preventDefault();
     try {
       const { sponsorId, ...campaign } = campaignDraft;
-      const res = await apiFetch(editingCampaignId ? `/api/monetization/sponsors/campaigns/${editingCampaignId}` : `/api/monetization/sponsors/${sponsorId}/campaigns`, {
-        method: editingCampaignId ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...campaign, agreedPrice: Number(campaign.agreedPrice), startDate: new Date(campaign.startDate).toISOString(), endDate: new Date(campaign.endDate).toISOString() }),
-      });
+      const res = await apiFetch(
+        editingCampaignId ? `/api/monetization/sponsors/campaigns/${editingCampaignId}` : `/api/monetization/sponsors/${sponsorId}/campaigns`,
+        {
+          method: editingCampaignId ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            ...campaign,
+            agreedPrice: Number(campaign.agreedPrice),
+            startDate: new Date(campaign.startDate).toISOString(),
+            endDate: new Date(campaign.endDate).toISOString(),
+          }),
+        },
+      );
       if (!res.ok) throw new Error((await res.json()).error || 'Could not create campaign.');
       setShowCampaignModal(false);
       setEditingCampaignId(null);
@@ -332,11 +871,14 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   const handleCreateAffiliatePartner = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      const res = await apiFetch(editingAffiliatePartnerId ? `/api/monetization/affiliate/partners/${editingAffiliatePartnerId}` : '/api/monetization/affiliate/partners', {
-        method: editingAffiliatePartnerId ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(affiliatePartnerDraft),
-      });
+      const res = await apiFetch(
+        editingAffiliatePartnerId ? `/api/monetization/affiliate/partners/${editingAffiliatePartnerId}` : '/api/monetization/affiliate/partners',
+        {
+          method: editingAffiliatePartnerId ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(affiliatePartnerDraft),
+        },
+      );
       if (!res.ok) throw new Error((await res.json()).error || 'Could not create partner.');
       setShowAffiliatePartnerModal(false);
       setEditingAffiliatePartnerId(null);
@@ -351,11 +893,18 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
   const handleCreateAffiliateCampaign = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      const res = await apiFetch(editingAffiliateCampaignId ? `/api/monetization/affiliate/campaigns/${editingAffiliateCampaignId}` : '/api/monetization/affiliate/campaigns', {
-        method: editingAffiliateCampaignId ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...affiliateCampaignDraft, startDate: new Date(affiliateCampaignDraft.startDate).toISOString(), endDate: new Date(affiliateCampaignDraft.endDate).toISOString() }),
-      });
+      const res = await apiFetch(
+        editingAffiliateCampaignId ? `/api/monetization/affiliate/campaigns/${editingAffiliateCampaignId}` : '/api/monetization/affiliate/campaigns',
+        {
+          method: editingAffiliateCampaignId ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            ...affiliateCampaignDraft,
+            startDate: new Date(affiliateCampaignDraft.startDate).toISOString(),
+            endDate: new Date(affiliateCampaignDraft.endDate).toISOString(),
+          }),
+        },
+      );
       if (!res.ok) throw new Error((await res.json()).error || 'Could not create affiliate campaign.');
       setShowAffiliateCampaignModal(false);
       setEditingAffiliateCampaignId(null);
@@ -399,6 +948,27 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
     }
   };
 
+  const filteredMovies = adminMovies.filter(m => {
+    if (movieFilterState !== 'ALL' && m.state !== movieFilterState) return false;
+    if (movieSearch.trim()) {
+      const q = movieSearch.toLowerCase().trim();
+      return m.title.toLowerCase().includes(q) || m.slug.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const filteredSeries = adminSeries.filter(s => {
+    if (seriesFilterState !== 'ALL' && s.state !== seriesFilterState) return false;
+    if (seriesSearch.trim()) {
+      const q = seriesSearch.toLowerCase().trim();
+      return s.title.toLowerCase().includes(q) || s.slug.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const publishedMoviesCount = metrics?.publishedMovies ?? adminMovies.filter(m => m.state === 'PUBLISHED').length;
+  const draftMoviesCount = metrics?.draftMovies ?? adminMovies.filter(m => m.state !== 'PUBLISHED').length;
+
   return (
     <div className="grid grid-cols-1 gap-4 pb-16 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-6">
       {/* Admin Title Bar */}
@@ -409,12 +979,12 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
           </div>
           <div>
             <h1 className="text-2xl font-black text-white">ZIRA Admin Console</h1>
-            <p className="text-xs text-red-300">Monetization, Rights Management, Content & Platform Metrics</p>
+            <p className="text-xs text-red-300">Content Management System, Monetization, Cloudflare R2 Media & Platform Metrics</p>
           </div>
         </div>
 
         <button
-          onClick={() => { fetchAdminMetrics(); onRefreshData(); }}
+          onClick={() => void refreshAll()}
           className="px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-200 text-xs font-semibold flex items-center gap-1.5 border border-neutral-800"
         >
           <RefreshCw className="w-3.5 h-3.5" /> Refresh Data
@@ -422,21 +992,34 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       </div>
 
       {statusMsg && (
-        <div className="p-4 rounded-xl bg-neutral-900 border border-neutral-700 text-white text-xs font-semibold flex items-center justify-between lg:col-span-2">
+        <div role="status" className="p-4 rounded-xl bg-neutral-900 border border-neutral-700 text-white text-xs font-semibold flex items-center justify-between lg:col-span-2">
           <span>{statusMsg}</span>
           <button onClick={() => setStatusMsg('')} className="text-neutral-400 hover:text-white"><X className="w-4 h-4" /></button>
         </div>
       )}
 
-      {/* Tabs */}
+      {uploadProgress !== null && (
+        <div className="p-4 rounded-xl bg-neutral-900 border border-red-800/60 text-white text-xs space-y-2 lg:col-span-2">
+          <div className="flex justify-between font-semibold">
+            <span>{uploadStatusText}</span>
+            <span>{uploadProgress}%</span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-neutral-800 overflow-hidden">
+            <div className="h-full bg-red-600 transition-all duration-200" style={{ width: `${uploadProgress}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* Navigation Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto border-b border-neutral-800 pb-2 lg:sticky lg:top-24 lg:col-start-1 lg:row-start-3 lg:flex-col lg:items-stretch lg:overflow-visible lg:border-b-0 lg:border-r lg:pr-4">
         {[
-          { id: 'metrics', label: 'Metrics & Analytics', icon: BarChart3 },
-          { id: 'movies', label: 'Movies Catalog', icon: Film },
-          { id: 'series', label: 'Series Catalog', icon: Tv },
+          { id: 'metrics', label: 'Dashboard & Stats', icon: BarChart3 },
+          { id: 'movies', label: `Movies (${adminMovies.length})`, icon: Film },
+          { id: 'series', label: `Series (${adminSeries.length})`, icon: Tv },
+          { id: 'media', label: 'Media & R2 Storage', icon: HardDrive },
           { id: 'rights', label: 'Rights Management', icon: ShieldCheck },
-          { id: 'sponsors', label: 'Sponsors & Monetization', icon: DollarSign },
-          { id: 'monetag', label: 'Monetag', icon: Sparkles },
+          { id: 'monetag', label: 'Monetag Ads', icon: Sparkles },
+          { id: 'sponsors', label: 'Direct Sponsors', icon: DollarSign },
           { id: 'affiliate', label: 'Affiliate', icon: ExternalLink },
           { id: 'analytics', label: 'Revenue & Analytics', icon: BarChart3 },
           { id: 'audit', label: 'Audit Logs', icon: FileText },
@@ -458,25 +1041,33 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         })}
       </div>
 
-      {/* TAB 1: METRICS & ANALYTICS */}
+      {/* TAB 1: DASHBOARD & STATS */}
       {activeTab === 'metrics' && metrics && (
         <div className="space-y-6 lg:col-start-2 lg:row-start-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800 space-y-1">
-              <span className="text-neutral-400 text-xs font-medium">Total Registered Users</span>
-              <div className="text-2xl font-black text-white">{metrics.totalUsers}</div>
+              <span className="text-neutral-400 text-xs font-medium">Total Movies</span>
+              <div className="text-2xl font-black text-white">{metrics.totalMovies}</div>
+              <div className="text-[11px] text-neutral-400">
+                <span className="text-emerald-400 font-semibold">{publishedMoviesCount} Published</span> · {draftMoviesCount} Draft/Unpublished
+              </div>
+            </div>
+            <div className="bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800 space-y-1">
+              <span className="text-neutral-400 text-xs font-medium">TV Series & Episodes</span>
+              <div className="text-2xl font-black text-white">{metrics.totalSeries} Series</div>
+              <div className="text-[11px] text-neutral-400">{metrics.totalEpisodes} Total Episodes</div>
             </div>
             <div className="bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800 space-y-1">
               <span className="text-neutral-400 text-xs font-medium">Total Stream Views</span>
               <div className="text-2xl font-black text-white">{metrics.totalViews.toLocaleString()}</div>
+              <div className="text-[11px] text-neutral-400">{metrics.totalUsers} Account Records</div>
             </div>
             <div className="bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800 space-y-1">
-              <span className="text-neutral-400 text-xs font-medium">Total Watch Hours</span>
-              <div className="text-2xl font-black text-white">{metrics.totalWatchHours === null ? 'Not tracked' : `${metrics.totalWatchHours} hrs`}</div>
-            </div>
-            <div className="bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800 space-y-1">
-              <span className="text-neutral-400 text-xs font-medium">Sponsor Impressions</span>
-              <div className="text-2xl font-black text-white">{metrics.totalSponsorImpressions.toLocaleString()}</div>
+              <span className="text-neutral-400 text-xs font-medium">Ad Placements</span>
+              <div className="text-2xl font-black text-white">{metrics.totalPlacements ?? 8} Zones</div>
+              <div className="text-[11px] text-neutral-400">
+                {metrics.activePlacementsCount ?? monetagPlacements.filter(p => p.enabled).length} Monetag Active · {campaigns.filter(c => c.active).length} Sponsor Active
+              </div>
             </div>
           </div>
 
@@ -505,14 +1096,41 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
                 <div className="flex justify-between items-center py-2 border-b border-neutral-800">
                   <span className="text-neutral-400">Cloudflare R2 Storage Service</span>
                   <span className={`font-bold ${metrics.r2Configured ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                    {metrics.r2Configured ? 'CONFIGURED' : 'NOT CONFIGURED (Uploads Disabled)'}
+                    {metrics.r2Configured ? 'CONFIGURED' : 'NOT CONFIGURED (Direct URL Mode Active)'}
                   </span>
                 </div>
-                <div className="flex justify-between items-center py-2">
+                <div className="flex justify-between items-center py-2 border-b border-neutral-800">
                   <span className="text-neutral-400">Pending Content Rights Verifications</span>
                   <span className="font-bold text-red-400">{metrics.pendingRightsCount} Items</span>
                 </div>
+                <div className="flex justify-between items-center py-2">
+                  <span className="text-neutral-400">Quick Actions</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setActiveTab('movies'); openAddMovieModal(); }} className="px-2.5 py-1 rounded bg-red-600 text-white font-bold">+ Movie</button>
+                    <button onClick={() => { setActiveTab('series'); openAddSeriesModal(); }} className="px-2.5 py-1 rounded bg-neutral-800 text-white font-bold">+ Series</button>
+                  </div>
+                </div>
               </div>
+            </div>
+          </div>
+
+          {/* Recent Content Activity */}
+          <div className="bg-neutral-900/50 p-6 rounded-2xl border border-neutral-800 space-y-3">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-white text-sm">Recent Content & Administrative Activity</h3>
+              <button onClick={() => setActiveTab('audit')} className="text-xs text-red-400 hover:underline">View All Logs</button>
+            </div>
+            <div className="divide-y divide-neutral-800/60 text-xs">
+              {auditLogs.slice(0, 6).map(log => (
+                <div key={log.id} className="py-2 flex flex-wrap justify-between items-center gap-2">
+                  <div>
+                    <span className="font-bold text-red-400">{log.action}</span>
+                    <span className="text-neutral-400 ml-2">on {log.entityType}</span>
+                    <span className="text-neutral-500 ml-2">by {log.adminName}</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-neutral-500">{new Date(log.createdAt).toLocaleString()}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -521,65 +1139,133 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
       {/* TAB 2: MOVIES CATALOG */}
       {activeTab === 'movies' && (
         <div className="space-y-4 lg:col-start-2 lg:row-start-3">
-          <div className="flex justify-between items-center">
-            <h2 className="text-lg font-bold text-white">Movie Management ({movies.length})</h2>
+          <div className="flex flex-wrap justify-between items-center gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-white">Movie Management ({filteredMovies.length} of {adminMovies.length})</h2>
+              <p className="text-xs text-neutral-400">Add, edit, publish, feature, or remove movies in the public catalog</p>
+            </div>
             <button
-              onClick={() => setShowAddMovieModal(true)}
+              onClick={openAddMovieModal}
               className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg"
             >
               <Plus className="w-4 h-4" /> Add New Movie
             </button>
           </div>
 
+          {/* Filters */}
+          <div className="flex flex-wrap gap-3 bg-neutral-900/50 p-3 rounded-xl border border-neutral-800 text-xs">
+            <input
+              type="text"
+              placeholder="Filter movies by title or slug…"
+              value={movieSearch}
+              onChange={e => setMovieSearch(e.target.value)}
+              className="flex-1 min-w-[200px] px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white"
+            />
+            <select
+              value={movieFilterState}
+              onChange={e => setMovieFilterState(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white"
+            >
+              <option value="ALL">All States</option>
+              <option value="PUBLISHED">PUBLISHED</option>
+              <option value="DRAFT">DRAFT</option>
+              <option value="UNPUBLISHED">UNPUBLISHED</option>
+            </select>
+          </div>
+
           <div className="overflow-x-auto rounded-lg border border-neutral-800">
-            <table className="w-full min-w-[620px] bg-neutral-900/60 text-left text-xs">
+            <table className="w-full min-w-[760px] bg-neutral-900/60 text-left text-xs">
               <thead className="bg-neutral-950 text-neutral-400 uppercase text-[10px] border-b border-neutral-800">
                 <tr>
                   <th className="p-3">Title</th>
-                  <th className="p-3">Year</th>
+                  <th className="p-3">Year / Runtime</th>
+                  <th className="p-3">Genres</th>
                   <th className="p-3">State</th>
-                  <th className="p-3">Views</th>
-                  <th className="p-3">Rating</th>
+                  <th className="p-3">Flags</th>
                   <th className="p-3">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
-                {movies.map(m => (
+                {filteredMovies.map(m => (
                   <tr key={m.id} className="hover:bg-neutral-800/30">
-                    <td className="p-3 font-bold text-white flex items-center gap-2">
-                      <img src={m.posterUrl} alt={m.title} className="w-8 h-10 object-cover rounded" />
+                    <td className="p-3 font-bold text-white flex items-center gap-2.5">
+                      <img src={m.posterUrl} alt={m.title} className="w-9 h-12 object-cover rounded bg-neutral-800 shrink-0" />
                       <div>
                         <div>{m.title}</div>
                         <div className="text-[10px] text-neutral-500 font-mono">{m.slug}</div>
                       </div>
                     </td>
-                    <td className="p-3">{m.releaseYear}</td>
+                    <td className="p-3 whitespace-nowrap">{m.releaseYear} · {m.durationMinutes}m</td>
+                    <td className="p-3">
+                      <div className="flex flex-wrap gap-1">
+                        {m.genres.slice(0, 3).map(g => (
+                          <span key={g} className="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px]">{g}</span>
+                        ))}
+                      </div>
+                    </td>
                     <td className="p-3">
                       <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
-                        m.state === 'PUBLISHED' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-yellow-950 text-yellow-400 border border-yellow-800'
+                        m.state === 'PUBLISHED'
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                          : 'bg-yellow-950 text-yellow-400 border border-yellow-800'
                       }`}>
                         {m.state}
                       </span>
                     </td>
-                    <td className="p-3">{m.viewCount}</td>
-                    <td className="p-3">{m.averageRating} ★</td>
-                    <td className="p-3 flex items-center gap-1.5">
-                      {m.state !== 'PUBLISHED' && (
+                    <td className="p-3">
+                      <div className="flex items-center gap-1.5">
                         <button
-                          onClick={() => handlePublishMovie(m.id, 'PUBLISHED')}
-                          className="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[10px]"
+                          onClick={() => void handleToggleMovieFlag(m, 'isFeatured')}
+                          title="Toggle Featured Hero"
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            m.isFeatured ? 'bg-amber-950/80 text-amber-300 border-amber-700' : 'bg-neutral-900 text-neutral-500 border-neutral-800'
+                          }`}
                         >
-                          Publish
+                          <Star className="w-3 h-3 inline mr-0.5" /> Hero
                         </button>
-                      )}
-                      {m.state === 'PUBLISHED' && (
                         <button
-                          onClick={() => handlePublishMovie(m.id, 'UNPUBLISHED')}
-                          className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-[10px]"
+                          onClick={() => void handleToggleMovieFlag(m, 'isTrending')}
+                          title="Toggle Trending"
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            m.isTrending ? 'bg-red-950/80 text-red-300 border-red-800' : 'bg-neutral-900 text-neutral-500 border-neutral-800'
+                          }`}
                         >
-                          Unpublish
+                          Trending
                         </button>
-                      )}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1.5">
+                        {m.state !== 'PUBLISHED' ? (
+                          <button
+                            onClick={() => void handlePublishMovie(m.id, 'PUBLISHED')}
+                            className="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[10px]"
+                          >
+                            Publish
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => void handlePublishMovie(m.id, 'UNPUBLISHED')}
+                            className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-[10px]"
+                          >
+                            Unpublish
+                          </button>
+                        )}
+                        <button
+                          onClick={() => openEditMovieModal(m)}
+                          className="p-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200"
+                          title={`Edit ${m.title}`}
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete({ type: 'movie', id: m.id, title: m.title })}
+                          className="p-1.5 rounded bg-red-950/60 hover:bg-red-900 text-red-300"
+                          title={`Delete ${m.title}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -589,7 +1275,269 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         </div>
       )}
 
-      {/* TAB 4: RIGHTS MANAGEMENT */}
+      {/* TAB 3: SERIES CATALOG */}
+      {activeTab === 'series' && (
+        <div className="space-y-4 lg:col-start-2 lg:row-start-3">
+          <div className="flex flex-wrap justify-between items-center gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-white">TV Series Management ({filteredSeries.length} of {adminSeries.length})</h2>
+              <p className="text-xs text-neutral-400">Create series, manage seasons and episodes, and control publication state</p>
+            </div>
+            <button
+              onClick={openAddSeriesModal}
+              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg"
+            >
+              <Plus className="w-4 h-4" /> Add New Series
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-3 bg-neutral-900/50 p-3 rounded-xl border border-neutral-800 text-xs">
+            <input
+              type="text"
+              placeholder="Filter series by title or slug…"
+              value={seriesSearch}
+              onChange={e => setSeriesSearch(e.target.value)}
+              className="flex-1 min-w-[200px] px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white"
+            />
+            <select
+              value={seriesFilterState}
+              onChange={e => setSeriesFilterState(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white"
+            >
+              <option value="ALL">All States</option>
+              <option value="PUBLISHED">PUBLISHED</option>
+              <option value="DRAFT">DRAFT</option>
+              <option value="UNPUBLISHED">UNPUBLISHED</option>
+            </select>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-neutral-800">
+            <table className="w-full min-w-[740px] bg-neutral-900/60 text-left text-xs">
+              <thead className="bg-neutral-950 text-neutral-400 uppercase text-[10px] border-b border-neutral-800">
+                <tr>
+                  <th className="p-3">Series Title</th>
+                  <th className="p-3">Year</th>
+                  <th className="p-3">Seasons / Episodes</th>
+                  <th className="p-3">State</th>
+                  <th className="p-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
+                {filteredSeries.map(s => {
+                  const epCount = s.seasons?.reduce((acc, sea) => acc + (sea.episodes?.length || 0), 0) || 0;
+                  return (
+                    <tr key={s.id} className="hover:bg-neutral-800/30">
+                      <td className="p-3 font-bold text-white flex items-center gap-2.5">
+                        <img src={s.posterUrl} alt={s.title} className="w-9 h-12 object-cover rounded bg-neutral-800 shrink-0" />
+                        <div>
+                          <div>{s.title}</div>
+                          <div className="text-[10px] text-neutral-500 font-mono">{s.slug}</div>
+                        </div>
+                      </td>
+                      <td className="p-3">{s.releaseYear}</td>
+                      <td className="p-3">
+                        <span className="font-semibold text-white">{s.seasons?.length || 0} Seasons</span> · {epCount} Episodes
+                      </td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                          s.state === 'PUBLISHED'
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                            : 'bg-yellow-950 text-yellow-400 border border-yellow-800'
+                        }`}>
+                          {s.state}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setManagingSeries(s);
+                              setEpisodeSeasonId(s.seasons?.[0]?.id || '');
+                              setNewSeasonNumber(String((s.seasons?.length || 0) + 1));
+                              setNewSeasonTitle(`Season ${(s.seasons?.length || 0) + 1}`);
+                            }}
+                            className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white font-semibold text-[10px] flex items-center gap-1"
+                          >
+                            <Layers className="w-3 h-3" /> Seasons & Episodes
+                          </button>
+                          {s.state !== 'PUBLISHED' ? (
+                            <button
+                              onClick={() => void handlePublishSeries(s.id, 'PUBLISHED')}
+                              className="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[10px]"
+                            >
+                              Publish
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => void handlePublishSeries(s.id, 'UNPUBLISHED')}
+                              className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-[10px]"
+                            >
+                              Unpublish
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openEditSeriesModal(s)}
+                            className="p-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200"
+                            title={`Edit ${s.title}`}
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete({ type: 'series', id: s.id, title: s.title })}
+                            className="p-1.5 rounded bg-red-950/60 hover:bg-red-900 text-red-300"
+                            title={`Delete ${s.title}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: MEDIA & R2 STORAGE */}
+      {activeTab === 'media' && (
+        <div className="space-y-6 lg:col-start-2 lg:row-start-3">
+          <div className="bg-neutral-900/60 p-6 rounded-2xl border border-neutral-800 space-y-4">
+            <div className="flex flex-wrap justify-between items-center gap-2">
+              <div>
+                <h2 className="text-lg font-bold text-white">Cloudflare R2 & Media Asset Library</h2>
+                <p className="text-xs text-neutral-400">
+                  Upload MP4 videos, posters, and thumbnails directly to Cloudflare R2 (never stored inside PostgreSQL)
+                </p>
+              </div>
+              <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                metrics?.r2Configured ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-amber-950 text-amber-300 border-amber-800'
+              }`}>
+                {metrics?.r2Configured ? 'Cloudflare R2 Connected' : 'R2 Credentials Not Set (External URL Mode)'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-2 border-t border-neutral-800">
+              <label className="text-neutral-300">
+                Asset Category
+                <select
+                  value={mediaCategory}
+                  onChange={e => setMediaCategory(e.target.value as any)}
+                  className="mt-1 w-full rounded-lg bg-neutral-950 border border-neutral-800 px-3 py-2 text-white"
+                >
+                  <option value="movie_video">Movie Video (MP4)</option>
+                  <option value="movie_poster">Movie Poster (JPG/PNG/WebP)</option>
+                  <option value="series_poster">Series Poster (JPG/PNG/WebP)</option>
+                  <option value="episode_video">Episode Video (MP4)</option>
+                  <option value="episode_thumbnail">Episode Thumbnail (JPG/PNG/WebP)</option>
+                </select>
+              </label>
+
+              <label className="text-neutral-300">
+                Target Content Slug / ID
+                <input
+                  type="text"
+                  value={mediaContentId}
+                  onChange={e => setMediaContentId(e.target.value)}
+                  placeholder="e.g. kigali-horizon"
+                  className="mt-1 w-full rounded-lg bg-neutral-950 border border-neutral-800 px-3 py-2 text-white"
+                />
+              </label>
+
+              <label className="text-neutral-300">
+                Upload File to Cloudflare R2
+                <input
+                  type="file"
+                  accept={mediaCategory.includes('video') ? 'video/mp4' : 'image/jpeg,image/png,image/webp'}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      void uploadFileToR2(file, mediaCategory, mediaContentId, { seasonNumber: 1, episodeNumber: 1 });
+                    }
+                    e.currentTarget.value = '';
+                  }}
+                  className="mt-1 block w-full text-xs text-neutral-300 file:mr-3 file:rounded-lg file:border-0 file:bg-red-600 file:px-3 file:py-2 file:font-bold file:text-white hover:file:bg-red-500"
+                />
+              </label>
+            </div>
+
+            <form
+              onSubmit={async e => {
+                e.preventDefault();
+                if (!externalMediaUrl.trim()) return;
+                const res = await apiFetch('/api/admin/media', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ originalUrl: externalMediaUrl.trim() }),
+                });
+                if (res.ok) {
+                  setExternalMediaUrl('');
+                  await fetchMediaAssets();
+                  setStatusMsg('External media reference registered.');
+                }
+              }}
+              className="flex flex-wrap gap-2 pt-2 border-t border-neutral-800 text-xs"
+            >
+              <input
+                type="url"
+                placeholder="Or register an existing CDN / R2 / HLS stream URL (https://…)"
+                value={externalMediaUrl}
+                onChange={e => setExternalMediaUrl(e.target.value)}
+                className="flex-1 px-3 py-2 rounded-lg bg-neutral-950 border border-neutral-800 text-white"
+              />
+              <button type="submit" className="px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white font-semibold">
+                Register Media URL
+              </button>
+            </form>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-neutral-800">
+            <table className="w-full min-w-[640px] bg-neutral-900/60 text-left text-xs">
+              <thead className="bg-neutral-950 text-neutral-400 uppercase text-[10px] border-b border-neutral-800">
+                <tr>
+                  <th className="p-3">Media URL</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Usage</th>
+                  <th className="p-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
+                {mediaAssets.map(asset => (
+                  <tr key={asset.id}>
+                    <td className="p-3 font-mono text-[11px] text-white break-all max-w-md">{asset.originalUrl}</td>
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 font-bold text-[10px]">{asset.status}</span>
+                    </td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${asset.inUse ? 'bg-blue-950 text-blue-300' : 'bg-neutral-800 text-neutral-400'}`}>
+                        {asset.inUse ? 'Linked to Catalog' : 'Unused'}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <button
+                        onClick={() => setConfirmDelete({ type: 'media', id: asset.id, title: asset.originalUrl })}
+                        className="px-2.5 py-1 rounded bg-red-950/70 hover:bg-red-900 text-red-300 text-[10px] font-bold"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {mediaAssets.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-6 text-center text-neutral-500">
+                      No custom media assets registered yet. Uploaded posters and videos will appear here.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: RIGHTS MANAGEMENT */}
       {activeTab === 'rights' && (
         <div className="space-y-4 lg:col-start-2 lg:row-start-3">
           <div className="p-4 rounded-xl bg-yellow-950/40 border border-yellow-800/60 text-yellow-300 text-xs space-y-1">
@@ -609,7 +1557,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
                   <th className="p-3">Rights Status</th>
                   <th className="p-3">Rights Holder</th>
                   <th className="p-3">License Ref</th>
-                  <th className="p-3">Territories</th>
+                  <th className="p-3">Update Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
@@ -620,14 +1568,27 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
                     </td>
                     <td className="p-3">
                       <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
-                        r.rightsStatus === 'OWNED' || r.rightsStatus === 'LICENSED' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'
+                        ['OWNED', 'LICENSED', 'PERMISSION_GRANTED', 'PUBLIC_DOMAIN'].includes(r.rightsStatus)
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                          : 'bg-red-950 text-red-400 border border-red-800'
                       }`}>
                         {r.rightsStatus}
                       </span>
                     </td>
                     <td className="p-3">{r.rightsHolder}</td>
                     <td className="p-3 font-mono text-[10px]">{r.licenseReference || 'N/A'}</td>
-                    <td className="p-3">{r.territories?.join(', ')}</td>
+                    <td className="p-3">
+                      <select
+                        aria-label={`Rights status for ${r.movie?.title || r.series?.title || r.id}`}
+                        value={r.rightsStatus}
+                        onChange={e => void handleUpdateRightsStatus(r.id, e.target.value)}
+                        className="rounded bg-neutral-950 border border-neutral-700 px-2 py-1 text-[11px] text-white"
+                      >
+                        {['OWNED', 'LICENSED', 'PERMISSION_GRANTED', 'PUBLIC_DOMAIN', 'PENDING_VERIFICATION', 'EXPIRED'].map(st => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </select>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -636,7 +1597,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         </div>
       )}
 
-      {/* TAB 5: SPONSORS & MONETIZATION */}
+      {/* TAB 6: DIRECT SPONSORS */}
       {activeTab === 'sponsors' && (
         <div className="space-y-6 lg:col-start-2 lg:row-start-3">
           <div className="flex justify-between items-center">
@@ -655,7 +1616,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
                   <div className="flex items-center gap-2">
                     <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${sp.active ? 'bg-emerald-950 text-emerald-400' : 'bg-neutral-800 text-neutral-400'}`}>{sp.active ? 'Active' : 'Paused'}</span>
                     <button onClick={() => { setEditingSponsorId(sp.id); setSponsorName(sp.name); setSponsorWebsite(sp.websiteUrl); setShowAddSponsorModal(true); }} aria-label={`Edit ${sp.name}`} className="rounded bg-neutral-800 px-2 py-1 text-[10px] text-white">Edit</button>
-                    <button onClick={() => updateSponsor(sp.id, { active: !sp.active })} aria-label={`${sp.active ? 'Pause' : 'Activate'} ${sp.name}`} className="rounded bg-neutral-800 px-2 py-1 text-[10px] text-neutral-300">{sp.active ? 'Pause' : 'Activate'}</button>
+                    <button onClick={() => void updateSponsor(sp.id, { active: !sp.active })} aria-label={`${sp.active ? 'Pause' : 'Activate'} ${sp.name}`} className="rounded bg-neutral-800 px-2 py-1 text-[10px] text-neutral-300">{sp.active ? 'Pause' : 'Activate'}</button>
                   </div>
                 </div>
                 <p className="text-xs text-neutral-400 truncate">{sp.websiteUrl}</p>
@@ -677,14 +1638,25 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
                     <div className="font-semibold text-white">{campaign.name}</div>
                     <div className="text-neutral-500">{campaign.placement} · {campaignStatus}</div>
                     <div className="text-neutral-500">{new Date(campaignData.startDate).toLocaleDateString()} – {new Date(campaignData.endDate).toLocaleDateString()} · Payment {campaignData.internalPaymentStatus}</div>
-                    <div className="text-neutral-500">{impressions.toLocaleString()} impressions · {clicks.toLocaleString()} clicks · CTR {impressions ? (clicks / impressions * 100).toFixed(2) : '0.00'}%</div>
+                    <div className="text-neutral-500">{impressions.toLocaleString()} impressions · {clicks.toLocaleString()} clicks · CTR {impressions ? ((clicks / impressions) * 100).toFixed(2) : '0.00'}%</div>
                   </div>
                   <div className="text-neutral-300">Contracted ${Number(campaignData.agreedPrice || 0).toFixed(2)}</div>
                   <div className="text-neutral-300">Paid ${Number(campaignData.paidAmount || 0).toFixed(2)} · Outstanding ${Number(campaignData.outstandingAmount ?? Number(campaignData.agreedPrice || 0) - Number(campaignData.paidAmount || 0)).toFixed(2)}</div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => {
                       const creative = campaignData.creatives?.[0];
-                      setCampaignDraft({ sponsorId: campaignData.sponsorId, name: campaignData.name, destinationUrl: campaignData.destinationUrl, imageUrl: creative?.imageUrl || '', creativeTitle: creative?.title || campaignData.name, tagline: creative?.tagline || '', placement: campaignData.placement, startDate: new Date(campaignData.startDate).toISOString().slice(0, 16), endDate: new Date(campaignData.endDate).toISOString().slice(0, 16), agreedPrice: String(campaignData.agreedPrice || 0) });
+                      setCampaignDraft({
+                        sponsorId: campaignData.sponsorId,
+                        name: campaignData.name,
+                        destinationUrl: campaignData.destinationUrl,
+                        imageUrl: creative?.imageUrl || '',
+                        creativeTitle: creative?.title || campaignData.name,
+                        tagline: creative?.tagline || '',
+                        placement: campaignData.placement,
+                        startDate: new Date(campaignData.startDate).toISOString().slice(0, 16),
+                        endDate: new Date(campaignData.endDate).toISOString().slice(0, 16),
+                        agreedPrice: String(campaignData.agreedPrice || 0),
+                      });
                       setEditingCampaignId(campaignData.id);
                       setShowCampaignModal(true);
                     }} className="rounded bg-neutral-800 px-2 py-1 text-white">Edit</button>
@@ -698,8 +1670,8 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
                       onChange={event => setPaidInputs(previous => ({ ...previous, [campaign.id]: event.target.value }))}
                       className="w-24 rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-white"
                     />
-                    <button onClick={() => updateSponsorCampaign(campaign.id, { paidAmount: Number(paidInputs[campaign.id] ?? campaignData.paidAmount ?? 0) })} className="rounded bg-neutral-800 px-2 py-1 text-white">Save</button>
-                    <button onClick={() => updateSponsorCampaign(campaign.id, { active: !campaignData.active })} className="rounded bg-neutral-800 px-2 py-1 text-neutral-300">{campaignData.active ? 'Pause' : 'Activate'}</button>
+                    <button onClick={() => void updateSponsorCampaign(campaign.id, { paidAmount: Number(paidInputs[campaign.id] ?? campaignData.paidAmount ?? 0) })} className="rounded bg-neutral-800 px-2 py-1 text-white">Save</button>
+                    <button onClick={() => void updateSponsorCampaign(campaign.id, { active: !campaignData.active })} className="rounded bg-neutral-800 px-2 py-1 text-neutral-300">{campaignData.active ? 'Pause' : 'Activate'}</button>
                   </div>
                 </div>
               );
@@ -709,6 +1681,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         </div>
       )}
 
+      {/* TAB 7: MONETAG ADS */}
       {activeTab === 'monetag' && (
         <div className="space-y-4 lg:col-start-2 lg:row-start-3">
           <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
@@ -718,30 +1691,45 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
             </div>
             <span className="text-[10px] text-amber-300">Estimate only; not verified revenue</span>
           </div>
-          <p className="border-l-2 border-amber-600 pl-3 text-xs text-neutral-400">Use a publisher-approved single-placement in-page tag. Do not use MultiTag or Onclick tags, which include popunder behavior. New placements are disabled until a Zone ID and approved tag are saved.</p>
+          <p className="border-l-2 border-amber-600 pl-3 text-xs text-neutral-400">
+            Use a publisher-approved single-placement in-page tag (e.g. <code className="text-neutral-200">&lt;script src="https://alwingulla.com/88/tag.min.js" data-zone="YOUR_ZONE_ID" async&gt;&lt;/script&gt;</code>). Do not use MultiTag or Onclick popunder tags. New placements remain disabled until a Zone ID and approved tag are saved.
+          </p>
           {monetagPlacements.map(item => (
-            <div key={item.placement} className="grid gap-3 border-b border-neutral-800 py-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
-              <div>
-                <label className="mb-1 block text-xs text-neutral-300" htmlFor={`monetag-zone-${item.placement}`}>{item.placement.replaceAll('_', ' ')} Zone ID</label>
-                <input id={`monetag-zone-${item.placement}`} value={item.zoneId} onChange={event => updateMonetagDraft(item.placement, { zoneId: event.target.value })} className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-xs text-white" />
+            <div key={item.placement} className="space-y-2 border-b border-neutral-800 py-4">
+              <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                <div>
+                  <label className="mb-1 block text-xs text-neutral-300" htmlFor={`monetag-zone-${item.placement}`}>{item.placement.replaceAll('_', ' ')} Zone ID</label>
+                  <input id={`monetag-zone-${item.placement}`} value={item.zoneId} onChange={event => updateMonetagDraft(item.placement, { zoneId: event.target.value })} placeholder="e.g. 1049281" className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-xs text-white" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-neutral-300" htmlFor={`monetag-tag-${item.placement}`}>Publisher tag snippet</label>
+                  <textarea id={`monetag-tag-${item.placement}`} value={item.tagCode} onChange={event => updateMonetagDraft(item.placement, { tagCode: event.target.value })} placeholder='<script src="https://alwingulla.com/88/tag.min.js" data-zone="1049281" async></script>' rows={3} className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-xs text-white" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 text-xs text-neutral-300">
+                    <input type="checkbox" checked={item.enabled} onChange={event => updateMonetagDraft(item.placement, { enabled: event.target.checked })} aria-label={`Enable Monetag ${item.placement}`} />
+                    Enabled
+                  </label>
+                  <button onClick={() => setPreviewPlacement(previewPlacement === item.placement ? null : item.placement)} className="rounded bg-neutral-900 border border-neutral-700 px-2.5 py-2 text-xs text-neutral-300">
+                    Preview
+                  </button>
+                  <button onClick={() => void saveMonetagPlacement(item)} className="rounded bg-red-600 hover:bg-red-500 px-3 py-2 text-xs font-bold text-white">Save</button>
+                </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs text-neutral-300" htmlFor={`monetag-tag-${item.placement}`}>Publisher tag snippet</label>
-                <textarea id={`monetag-tag-${item.placement}`} value={item.tagCode} onChange={event => updateMonetagDraft(item.placement, { tagCode: event.target.value })} rows={3} className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-xs text-white" />
-              </div>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 text-xs text-neutral-300">
-                  <input type="checkbox" checked={item.enabled} onChange={event => updateMonetagDraft(item.placement, { enabled: event.target.checked })} aria-label={`Enable Monetag ${item.placement}`} />
-                  Enabled
-                </label>
-                <button onClick={() => saveMonetagPlacement(item)} className="rounded bg-neutral-800 px-3 py-2 text-xs text-white">Save</button>
-              </div>
+              {previewPlacement === item.placement && (
+                <div className="rounded-xl border border-dashed border-neutral-700 bg-neutral-950 p-3 text-xs text-neutral-400">
+                  <div className="font-bold text-neutral-200 mb-1">Placement Preview: {item.placement}</div>
+                  <div>Status: <span className={item.enabled ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>{item.enabled ? 'ACTIVE' : 'DISABLED'}</span> · Zone ID: <span className="font-mono text-white">{item.zoneId || 'Not configured'}</span></div>
+                  <div className="mt-1 text-[11px] text-neutral-500">Non-intrusive banner container rendered in {item.placement.replaceAll('_', ' ').toLowerCase()} slot when enabled.</div>
+                </div>
+              )}
             </div>
           ))}
           {monetagPlacements.length === 0 && <p className="text-xs text-neutral-500">No placement configuration is available.</p>}
         </div>
       )}
 
+      {/* TAB 8: AFFILIATE */}
       {activeTab === 'affiliate' && (
         <div className="space-y-5 lg:col-start-2 lg:row-start-3">
           <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
@@ -755,12 +1743,13 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
           <div className="grid gap-3 md:grid-cols-2">
             {affiliateData.partners.map((partner: any) => (
               <div key={partner.id} className="flex items-center justify-between gap-2 border-b border-neutral-800 py-3">
-                <div><div className="text-sm font-semibold text-white">{partner.partnerName}</div>
-                <a href={partner.websiteUrl} target="_blank" rel="noreferrer" className="text-xs text-neutral-400">{partner.websiteUrl}</a>
+                <div>
+                  <div className="text-sm font-semibold text-white">{partner.partnerName}</div>
+                  <a href={partner.websiteUrl} target="_blank" rel="noreferrer" className="text-xs text-neutral-400">{partner.websiteUrl}</a>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => { setEditingAffiliatePartnerId(partner.id); setAffiliatePartnerDraft({ partnerName: partner.partnerName, websiteUrl: partner.websiteUrl, description: partner.description || '' }); setShowAffiliatePartnerModal(true); }} className="rounded bg-neutral-800 px-2 py-1 text-[10px] text-white">Edit</button>
-                  <button onClick={async () => { const res = await apiFetch(`/api/monetization/affiliate/partners/${partner.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ active: !partner.active }) }); if (res.ok) fetchAffiliateData(); else setStatusMsg((await res.json()).error || 'Could not update partner.'); }} className="rounded bg-neutral-800 px-2 py-1 text-[10px] text-neutral-300">{partner.active ? 'Pause' : 'Activate'}</button>
+                  <button onClick={async () => { const res = await apiFetch(`/api/monetization/affiliate/partners/${partner.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ active: !partner.active }) }); if (res.ok) void fetchAffiliateData(); else setStatusMsg((await res.json()).error || 'Could not update partner.'); }} className="rounded bg-neutral-800 px-2 py-1 text-[10px] text-neutral-300">{partner.active ? 'Pause' : 'Activate'}</button>
                 </div>
               </div>
             ))}
@@ -768,10 +1757,14 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
           {affiliateData.campaigns.map((campaign: any) => (
             <div key={campaign.id} className="border-b border-neutral-800 py-3 text-xs">
               <div className="flex items-center justify-between gap-2">
-                <div><div className="font-semibold text-white">{campaign.campaignName} · {campaign.partner.partnerName}</div><div className="text-neutral-400">{campaign.placement} · {campaign.clicksCount} clicks · {!campaign.active ? 'Paused' : new Date(campaign.startDate) > new Date() ? 'Scheduled' : new Date(campaign.endDate) < new Date() ? 'Ended' : 'Active'}</div><div className="text-neutral-500">{new Date(campaign.startDate).toLocaleDateString()} – {new Date(campaign.endDate).toLocaleDateString()}</div></div>
+                <div>
+                  <div className="font-semibold text-white">{campaign.campaignName} · {campaign.partner.partnerName}</div>
+                  <div className="text-neutral-400">{campaign.placement} · {campaign.clicksCount} clicks · {!campaign.active ? 'Paused' : new Date(campaign.startDate) > new Date() ? 'Scheduled' : new Date(campaign.endDate) < new Date() ? 'Ended' : 'Active'}</div>
+                  <div className="text-neutral-500">{new Date(campaign.startDate).toLocaleDateString()} – {new Date(campaign.endDate).toLocaleDateString()}</div>
+                </div>
                 <div className="flex gap-2">
                   <button onClick={() => { setEditingAffiliateCampaignId(campaign.id); setAffiliateCampaignDraft({ partnerId: campaign.partnerId, campaignName: campaign.campaignName, destinationUrl: campaign.destinationUrl, trackingUrl: campaign.trackingUrl, imageUrl: campaign.imageUrl || '', placement: campaign.placement, startDate: new Date(campaign.startDate).toISOString().slice(0, 16), endDate: new Date(campaign.endDate).toISOString().slice(0, 16) }); setShowAffiliateCampaignModal(true); }} className="rounded bg-neutral-800 px-2 py-1 text-[10px] text-white">Edit</button>
-                  <button onClick={async () => { const res = await apiFetch(`/api/monetization/affiliate/campaigns/${campaign.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ active: !campaign.active }) }); if (res.ok) fetchAffiliateData(); else setStatusMsg((await res.json()).error || 'Could not update campaign.'); }} className="rounded bg-neutral-800 px-2 py-1 text-[10px] text-neutral-300">{campaign.active ? 'Pause' : 'Activate'}</button>
+                  <button onClick={async () => { const res = await apiFetch(`/api/monetization/affiliate/campaigns/${campaign.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ active: !campaign.active }) }); if (res.ok) void fetchAffiliateData(); else setStatusMsg((await res.json()).error || 'Could not update campaign.'); }} className="rounded bg-neutral-800 px-2 py-1 text-[10px] text-neutral-300">{campaign.active ? 'Pause' : 'Activate'}</button>
                 </div>
               </div>
               <form onSubmit={handleRecordConversion} className="mt-3 flex flex-wrap items-end gap-2 border-b border-neutral-900 pb-3">
@@ -784,7 +1777,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
                 {campaign.conversions.map((conversion: any) => (
                   <div key={conversion.id} className={`flex items-center gap-2 rounded px-2 py-1 ${conversion.status === 'VERIFIED' ? 'bg-emerald-950 text-emerald-300' : conversion.status === 'REJECTED' ? 'bg-neutral-800 text-neutral-400' : 'bg-amber-950 text-amber-300'}`}>
                     <span>{conversion.status} · {conversion.currency} {Number(conversion.commissionRevenue).toFixed(2)} · Ref {conversion.externalReference || 'missing'}</span>
-                    {conversion.status === 'PENDING' && <><button onClick={() => setConversionReview(conversion.id, 'VERIFIED')} className="font-bold underline">Verify</button><button onClick={() => setConversionReview(conversion.id, 'REJECTED')} className="underline">Reject</button></>}
+                    {conversion.status === 'PENDING' && <><button onClick={() => void setConversionReview(conversion.id, 'VERIFIED')} className="font-bold underline">Verify</button><button onClick={() => void setConversionReview(conversion.id, 'REJECTED')} className="underline">Reject</button></>}
                   </div>
                 ))}
               </div>
@@ -794,6 +1787,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         </div>
       )}
 
+      {/* TAB 9: REVENUE & ANALYTICS */}
       {activeTab === 'analytics' && (
         <div className="space-y-5 lg:col-start-2 lg:row-start-3">
           <h2 className="text-lg font-bold text-white">Revenue and placement analytics</h2>
@@ -818,7 +1812,7 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         </div>
       )}
 
-      {/* TAB 6: AUDIT LOGS */}
+      {/* TAB 10: AUDIT LOGS */}
       {activeTab === 'audit' && (
         <div className="overflow-x-auto rounded-lg border border-neutral-800 lg:col-start-2 lg:row-start-3">
           <table className="w-full min-w-[620px] bg-neutral-900/60 text-left text-xs">
@@ -844,35 +1838,383 @@ export function AdminView({ token, movies, series, onRefreshData }: AdminViewPro
         </div>
       )}
 
-      {/* ADD MOVIE MODAL */}
-      {showAddMovieModal && (
+      {/* ADD / EDIT MOVIE MODAL */}
+      {showMovieModal && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg space-y-4 overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-            <h3 className="text-lg font-bold text-white">Add New Movie</h3>
-            <form onSubmit={handleCreateMovie} className="space-y-3 text-xs">
-              <div>
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl space-y-4 overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white">{editingMovieId ? 'Edit Movie' : 'Add New Movie'}</h3>
+              <button onClick={() => setShowMovieModal(false)} className="text-neutral-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleSaveMovie} className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="sm:col-span-2">
                 <label className="text-neutral-300 block mb-1">Movie Title</label>
-                <input required type="text" value={newMovieTitle} onChange={e => setNewMovieTitle(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+                <input required type="text" value={movieDraft.title} onChange={e => setMovieDraft(prev => ({ ...prev, title: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-neutral-300 block mb-1">Description</label>
+                <textarea required value={movieDraft.description} onChange={e => setMovieDraft(prev => ({ ...prev, description: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white h-20" />
               </div>
               <div>
-                <label className="text-neutral-300 block mb-1">Description</label>
-                <textarea required value={newMovieDesc} onChange={e => setNewMovieDesc(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white h-20" />
+                <label className="text-neutral-300 block mb-1">Release Year</label>
+                <input type="number" value={movieDraft.releaseYear} onChange={e => setMovieDraft(prev => ({ ...prev, releaseYear: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-neutral-300 block mb-1">Release Year</label>
-                  <input type="number" value={newMovieYear} onChange={e => setNewMovieYear(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
-                </div>
-                <div>
-                  <label className="text-neutral-300 block mb-1">Duration (Mins)</label>
-                  <input type="number" value={newMovieDuration} onChange={e => setNewMovieDuration(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+              <div>
+                <label className="text-neutral-300 block mb-1">Duration (Mins)</label>
+                <input type="number" value={movieDraft.durationMinutes} onChange={e => setMovieDraft(prev => ({ ...prev, durationMinutes: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+              </div>
+              <div>
+                <label className="text-neutral-300 block mb-1">Language</label>
+                <input type="text" value={movieDraft.language} onChange={e => setMovieDraft(prev => ({ ...prev, language: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+              </div>
+              <div>
+                <label className="text-neutral-300 block mb-1">Maturity Rating</label>
+                <select value={movieDraft.maturityRating} onChange={e => setMovieDraft(prev => ({ ...prev, maturityRating: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white">
+                  <option value="G">G</option>
+                  <option value="PG">PG</option>
+                  <option value="PG-13">PG-13</option>
+                  <option value="R">R</option>
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-neutral-300 block mb-1">Genres & Categories</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {AVAILABLE_GENRES.map(g => {
+                    const selected = movieDraft.genres.includes(g);
+                    return (
+                      <button
+                        type="button"
+                        key={g}
+                        onClick={() =>
+                          setMovieDraft(prev => ({
+                            ...prev,
+                            genres: selected ? prev.genres.filter(item => item !== g) : [...prev.genres, g],
+                          }))
+                        }
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
+                          selected ? 'bg-red-600 text-white border-red-500' : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                        }`}
+                      >
+                        {g}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowAddMovieModal(false)} className="px-4 py-2 rounded-xl bg-neutral-800 text-neutral-300">Cancel</button>
-                <button type="submit" className="px-4 py-2 rounded-xl bg-red-600 text-white font-bold">Create Movie</button>
+              <div>
+                <label className="text-neutral-300 block mb-1">Poster Image URL</label>
+                <input type="text" value={movieDraft.posterUrl} onChange={e => setMovieDraft(prev => ({ ...prev, posterUrl: e.target.value }))} placeholder="https://… or upload below" className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={async e => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      const url = await uploadFileToR2(f, 'movie_poster', editingMovieId || movieDraft.title || 'movie');
+                      if (url) setMovieDraft(prev => ({ ...prev, posterUrl: url, backdropUrl: prev.backdropUrl || url }));
+                    }
+                  }}
+                  className="mt-1 block w-full text-[11px] text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2 file:py-1 file:text-white"
+                />
+              </div>
+              <div>
+                <label className="text-neutral-300 block mb-1">Video Stream URL (MP4/HLS)</label>
+                <input type="text" value={movieDraft.videoUrl} onChange={e => setMovieDraft(prev => ({ ...prev, videoUrl: e.target.value }))} placeholder="https://… or upload MP4 below" className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+                <input
+                  type="file"
+                  accept="video/mp4"
+                  onChange={async e => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      const url = await uploadFileToR2(f, 'movie_video', editingMovieId || movieDraft.title || 'movie');
+                      if (url) setMovieDraft(prev => ({ ...prev, videoUrl: url }));
+                    }
+                  }}
+                  className="mt-1 block w-full text-[11px] text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2 file:py-1 file:text-white"
+                />
+              </div>
+              <div>
+                <label className="text-neutral-300 block mb-1">Trailer URL</label>
+                <input type="text" value={movieDraft.trailerUrl} onChange={e => setMovieDraft(prev => ({ ...prev, trailerUrl: e.target.value }))} placeholder="https://…" className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+              </div>
+              <div>
+                <label className="text-neutral-300 block mb-1">Rights Status & Publication</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={movieDraft.rightsStatus} onChange={e => setMovieDraft(prev => ({ ...prev, rightsStatus: e.target.value }))} className="px-2 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white">
+                    {['OWNED', 'LICENSED', 'PERMISSION_GRANTED', 'PUBLIC_DOMAIN', 'PENDING_VERIFICATION'].map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  <select value={movieDraft.state} onChange={e => setMovieDraft(prev => ({ ...prev, state: e.target.value }))} className="px-2 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white">
+                    <option value="PUBLISHED">PUBLISHED</option>
+                    <option value="DRAFT">DRAFT</option>
+                    <option value="UNPUBLISHED">UNPUBLISHED</option>
+                  </select>
+                </div>
+              </div>
+              <div className="sm:col-span-2 flex flex-wrap gap-4 pt-1">
+                <label className="flex items-center gap-2 text-neutral-300">
+                  <input type="checkbox" checked={movieDraft.isFeatured} onChange={e => setMovieDraft(prev => ({ ...prev, isFeatured: e.target.checked }))} />
+                  Featured on Homepage Hero
+                </label>
+                <label className="flex items-center gap-2 text-neutral-300">
+                  <input type="checkbox" checked={movieDraft.isTrending} onChange={e => setMovieDraft(prev => ({ ...prev, isTrending: e.target.checked }))} />
+                  Trending Rail
+                </label>
+                <label className="flex items-center gap-2 text-neutral-300">
+                  <input type="checkbox" checked={movieDraft.isRwandanContent} onChange={e => setMovieDraft(prev => ({ ...prev, isRwandanContent: e.target.checked }))} />
+                  Rwanda & East African Cinema
+                </label>
+              </div>
+              <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowMovieModal(false)} className="px-4 py-2 rounded-xl bg-neutral-800 text-neutral-300">Cancel</button>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-red-600 text-white font-bold">{editingMovieId ? 'Save Movie' : 'Create Movie'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADD / EDIT SERIES MODAL */}
+      {showSeriesModal && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl space-y-4 overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white">{editingSeriesId ? 'Edit TV Series' : 'Add New TV Series'}</h3>
+              <button onClick={() => setShowSeriesModal(false)} className="text-neutral-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleSaveSeries} className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="sm:col-span-2">
+                <label className="text-neutral-300 block mb-1">Series Title</label>
+                <input required type="text" value={seriesDraft.title} onChange={e => setSeriesDraft(prev => ({ ...prev, title: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-neutral-300 block mb-1">Description</label>
+                <textarea required value={seriesDraft.description} onChange={e => setSeriesDraft(prev => ({ ...prev, description: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white h-20" />
+              </div>
+              <div>
+                <label className="text-neutral-300 block mb-1">Release Year</label>
+                <input type="number" value={seriesDraft.releaseYear} onChange={e => setSeriesDraft(prev => ({ ...prev, releaseYear: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+              </div>
+              <div>
+                <label className="text-neutral-300 block mb-1">Language</label>
+                <input type="text" value={seriesDraft.language} onChange={e => setSeriesDraft(prev => ({ ...prev, language: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-neutral-300 block mb-1">Genres & Categories</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {AVAILABLE_GENRES.map(g => {
+                    const selected = seriesDraft.genres.includes(g);
+                    return (
+                      <button
+                        type="button"
+                        key={g}
+                        onClick={() =>
+                          setSeriesDraft(prev => ({
+                            ...prev,
+                            genres: selected ? prev.genres.filter(item => item !== g) : [...prev.genres, g],
+                          }))
+                        }
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
+                          selected ? 'bg-red-600 text-white border-red-500' : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                        }`}
+                      >
+                        {g}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="text-neutral-300 block mb-1">Poster Image URL</label>
+                <input type="text" value={seriesDraft.posterUrl} onChange={e => setSeriesDraft(prev => ({ ...prev, posterUrl: e.target.value }))} placeholder="https://…" className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white" />
+              </div>
+              <div>
+                <label className="text-neutral-300 block mb-1">Publication State</label>
+                <select value={seriesDraft.state} onChange={e => setSeriesDraft(prev => ({ ...prev, state: e.target.value }))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-white">
+                  <option value="PUBLISHED">PUBLISHED</option>
+                  <option value="DRAFT">DRAFT</option>
+                  <option value="UNPUBLISHED">UNPUBLISHED</option>
+                </select>
+              </div>
+              <div className="sm:col-span-2 flex flex-wrap gap-4 pt-1">
+                <label className="flex items-center gap-2 text-neutral-300">
+                  <input type="checkbox" checked={seriesDraft.isFeatured} onChange={e => setSeriesDraft(prev => ({ ...prev, isFeatured: e.target.checked }))} />
+                  Featured Series
+                </label>
+                <label className="flex items-center gap-2 text-neutral-300">
+                  <input type="checkbox" checked={seriesDraft.isTrending} onChange={e => setSeriesDraft(prev => ({ ...prev, isTrending: e.target.checked }))} />
+                  Trending Series
+                </label>
+                <label className="flex items-center gap-2 text-neutral-300">
+                  <input type="checkbox" checked={seriesDraft.isRwandanContent} onChange={e => setSeriesDraft(prev => ({ ...prev, isRwandanContent: e.target.checked }))} />
+                  Rwanda & East African Series
+                </label>
+              </div>
+              <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowSeriesModal(false)} className="px-4 py-2 rounded-xl bg-neutral-800 text-neutral-300">Cancel</button>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-red-600 text-white font-bold">{editingSeriesId ? 'Save Series' : 'Create Series'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SEASONS & EPISODES MANAGER MODAL */}
+      {managingSeries && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-4xl space-y-5 overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 p-6 text-xs">
+            <div className="flex justify-between items-center border-b border-neutral-800 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-white">Seasons & Episodes — {managingSeries.title}</h3>
+                <p className="text-neutral-400">Add seasons, upload episode videos & thumbnails, and manage episode order</p>
+              </div>
+              <button onClick={() => setManagingSeries(null)} className="p-1.5 rounded-lg bg-neutral-800 text-neutral-300 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+
+            {/* Add Season Form */}
+            <form onSubmit={handleAddSeason} className="flex flex-wrap items-end gap-3 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
+              <div>
+                <label className="block text-neutral-400 mb-1">Season #</label>
+                <input type="number" min="1" required value={newSeasonNumber} onChange={e => setNewSeasonNumber(e.target.value)} className="w-24 px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white" />
+              </div>
+              <div className="flex-1 min-w-[180px]">
+                <label className="block text-neutral-400 mb-1">Season Title</label>
+                <input type="text" required value={newSeasonTitle} onChange={e => setNewSeasonTitle(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white" />
+              </div>
+              <button type="submit" className="px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white font-bold">
+                + Add Season
+              </button>
+            </form>
+
+            {/* Add / Edit Episode Form */}
+            <form onSubmit={handleSaveEpisode} className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
+              <div className="sm:col-span-3 font-bold text-white">
+                {editingEpisode ? `Editing Episode: ${editingEpisode.title}` : 'Add Episode to Season'}
+              </div>
+              <div>
+                <label className="block text-neutral-400 mb-1">Season</label>
+                <select
+                  value={episodeSeasonId || managingSeries.seasons?.[0]?.id || ''}
+                  onChange={e => setEpisodeSeasonId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white"
+                >
+                  {managingSeries.seasons?.map(sea => (
+                    <option key={sea.id} value={sea.id}>Season {sea.seasonNumber}: {sea.title}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-neutral-400 mb-1">Episode #</label>
+                <input type="number" min="1" required value={episodeDraft.episodeNumber} onChange={e => setEpisodeDraft(prev => ({ ...prev, episodeNumber: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white" />
+              </div>
+              <div>
+                <label className="block text-neutral-400 mb-1">Duration (Mins)</label>
+                <input type="number" min="1" required value={episodeDraft.durationMinutes} onChange={e => setEpisodeDraft(prev => ({ ...prev, durationMinutes: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-neutral-400 mb-1">Episode Title</label>
+                <input type="text" required value={episodeDraft.title} onChange={e => setEpisodeDraft(prev => ({ ...prev, title: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white" />
+              </div>
+              <div>
+                <label className="block text-neutral-400 mb-1">Thumbnail URL</label>
+                <input type="text" value={episodeDraft.thumbnailUrl} onChange={e => setEpisodeDraft(prev => ({ ...prev, thumbnailUrl: e.target.value }))} placeholder="https://…" className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-neutral-400 mb-1">Episode Description</label>
+                <input type="text" required value={episodeDraft.description} onChange={e => setEpisodeDraft(prev => ({ ...prev, description: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white" />
+              </div>
+              <div>
+                <label className="block text-neutral-400 mb-1">Video Stream URL (MP4/HLS)</label>
+                <input type="text" value={episodeDraft.videoUrl} onChange={e => setEpisodeDraft(prev => ({ ...prev, videoUrl: e.target.value }))} placeholder="https://…" className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white" />
+              </div>
+              <div className="sm:col-span-3 flex justify-end gap-2">
+                {editingEpisode && (
+                  <button type="button" onClick={() => setEditingEpisode(null)} className="px-3 py-1.5 rounded-lg bg-neutral-800 text-neutral-300">
+                    Cancel Edit
+                  </button>
+                )}
+                <button type="submit" className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold">
+                  {editingEpisode ? 'Update Episode' : '+ Add Episode'}
+                </button>
+              </div>
+            </form>
+
+            {/* Existing Seasons & Episodes */}
+            <div className="space-y-4">
+              {managingSeries.seasons?.map(sea => (
+                <div key={sea.id} className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4 space-y-3">
+                  <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
+                    <div className="font-bold text-white">Season {sea.seasonNumber}: {sea.title} ({sea.episodes?.length || 0} episodes)</div>
+                    <button
+                      onClick={() => setConfirmDelete({ type: 'season', id: sea.id, parentId: managingSeries.id, title: `Season ${sea.seasonNumber}` })}
+                      className="text-red-400 hover:text-red-300 text-[11px] font-semibold"
+                    >
+                      Delete Season
+                    </button>
+                  </div>
+                  <div className="divide-y divide-neutral-800/60">
+                    {sea.episodes?.map(ep => (
+                      <div key={ep.id} className="py-2 flex justify-between items-center gap-2">
+                        <div>
+                          <span className="font-bold text-white">E{ep.episodeNumber}: {ep.title}</span>
+                          <span className="text-neutral-500 ml-2">({ep.durationMinutes}m)</span>
+                          <p className="text-neutral-400 text-[11px] line-clamp-1">{ep.description}</p>
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          <button
+                            onClick={() => {
+                              setEditingEpisode(ep);
+                              setEpisodeSeasonId(sea.id);
+                              setEpisodeDraft({
+                                episodeNumber: String(ep.episodeNumber),
+                                title: ep.title,
+                                description: ep.description,
+                                durationMinutes: String(ep.durationMinutes),
+                                thumbnailUrl: ep.thumbnailUrl || '',
+                                videoUrl: ep.videoUrl || '',
+                                state: ep.state || 'PUBLISHED',
+                              });
+                            }}
+                            className="px-2 py-1 rounded bg-neutral-800 text-white text-[10px]"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete({ type: 'episode', id: ep.id, title: ep.title })}
+                            className="px-2 py-1 rounded bg-red-950/60 text-red-300 text-[10px]"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION DIALOG FOR DESTRUCTIVE ACTIONS */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl border border-red-900/60 bg-neutral-900 p-6 space-y-4 text-xs">
+            <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+              <AlertTriangle className="w-5 h-5" /> Confirm Permanent Deletion
+            </div>
+            <p className="text-neutral-300 leading-relaxed">
+              Are you sure you want to permanently delete <span className="font-bold text-white">{confirmDelete.title}</span>? This action will immediately update the public catalog and cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 rounded-xl bg-neutral-800 text-neutral-300 font-semibold">
+                Cancel
+              </button>
+              <button onClick={() => void executeConfirmedDelete()} className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold">
+                Confirm Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

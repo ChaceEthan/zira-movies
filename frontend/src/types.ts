@@ -200,8 +200,14 @@ export interface SponsorCampaign {
 export interface AdminMetrics {
   totalUsers: number;
   totalMovies: number;
+  publishedMovies?: number;
+  draftMovies?: number;
   totalSeries: number;
+  publishedSeries?: number;
+  draftSeries?: number;
   totalEpisodes: number;
+  totalPlacements?: number;
+  activePlacementsCount?: number;
   totalViews: number;
   totalWatchHours: number | null;
   totalSponsorImpressions: number;
@@ -209,6 +215,10 @@ export interface AdminMetrics {
   totalAffiliateClicks: number;
   pendingRightsCount: number;
   r2Configured: boolean;
+  sponsorContractedRevenue?: number;
+  sponsorPaidRevenue?: number;
+  sponsorOutstandingRevenue?: number;
+  affiliateVerifiedRevenue?: number;
 }
 
 export interface AdminAuditLog {

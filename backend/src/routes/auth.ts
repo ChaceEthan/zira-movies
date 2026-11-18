@@ -104,6 +104,104 @@ router.post('/login', async (req, res, next) => {
 	}
 });
 
+router.get('/admin-status', async (_req, res, next) => {
+	try {
+		const adminCount = await prisma.user.count({
+			where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } },
+		});
+		const configuredEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase() || null;
+		res.json({
+			hasAdmin: adminCount > 0,
+			bootstrapAvailable: adminCount === 0,
+			requiresSetupToken: Boolean(process.env.ADMIN_SETUP_TOKEN),
+			configuredAdminEmail: adminCount === 0 ? configuredEmail : null,
+		});
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.post('/bootstrap-admin', async (req, res, next) => {
+	try {
+		const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+		const password = typeof req.body.password === 'string' ? req.body.password : '';
+		const displayName =
+			typeof req.body.displayName === 'string' && req.body.displayName.trim()
+				? req.body.displayName.trim()
+				: 'ZIRA Administrator';
+		const setupToken = typeof req.body.setupToken === 'string' ? req.body.setupToken.trim() : '';
+
+		if (!/^\S+@\S+\.\S+$/.test(email) || password.length < 10 || displayName.length < 2 || displayName.length > 80) {
+			res.status(400).json({
+				error: 'Provide a valid administrator email, a display name, and a strong password of at least 10 characters.',
+			});
+			return;
+		}
+
+		const adminCount = await prisma.user.count({
+			where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } },
+		});
+
+		const envSetupToken = process.env.ADMIN_SETUP_TOKEN?.trim();
+		const hasValidSetupToken = Boolean(envSetupToken && setupToken && setupToken === envSetupToken);
+
+		if (adminCount > 0 && !hasValidSetupToken) {
+			res.status(403).json({
+				error: 'An administrator account is already configured. Sign in with your administrator credentials.',
+			});
+			return;
+		}
+
+		if (envSetupToken && !hasValidSetupToken) {
+			res.status(403).json({
+				error: 'A valid ADMIN_SETUP_TOKEN is required to initialize administrator access.',
+			});
+			return;
+		}
+
+		const configuredAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+		if (configuredAdminEmail && email !== configuredAdminEmail && !hasValidSetupToken) {
+			res.status(403).json({
+				error: `Initial administrator setup is restricted to the configured ADMIN_EMAIL (${configuredAdminEmail}).`,
+			});
+			return;
+		}
+
+		const passwordHash = await bcrypt.hash(password, 12);
+		const user = await prisma.user.upsert({
+			where: { email },
+			update: {
+				passwordHash,
+				displayName,
+				role: 'SUPER_ADMIN',
+				emailVerified: true,
+			},
+			create: {
+				email,
+				passwordHash,
+				displayName,
+				role: 'SUPER_ADMIN',
+				emailVerified: true,
+			},
+		});
+
+		await prisma.adminAuditLog.create({
+			data: {
+				adminId: user.id,
+				action: 'BOOTSTRAP_SUPER_ADMIN',
+				entityType: 'User',
+				entityId: user.id,
+				metadata: JSON.stringify({ email: user.email }),
+			},
+		});
+
+		const token = await issueSession(user, res);
+		res.status(201).json({ user: publicUser(user), token });
+	} catch (error) {
+		next(error);
+	}
+});
+
 router.post('/demo-login', (_req, res) => {
 	res.status(404).json({ error: 'Demo sign-in is not available.' });
 });

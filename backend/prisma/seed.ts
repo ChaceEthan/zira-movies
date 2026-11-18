@@ -1,62 +1,206 @@
+import { AdPlacementType } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 import prisma from './prisma';
+import { SEED_GENRES, ALL_SEED_MOVIES, SEED_SERIES } from '../src/catalogSeedData';
 
-async function main() {
-  const genres = [
-    { name: 'Demo Drama', slug: 'demo-drama' },
-    { name: 'Demo Adventure', slug: 'demo-adventure' },
-  ];
+const AD_PLACEMENTS: AdPlacementType[] = [
+  'HOME_BETWEEN_RAILS',
+  'HOME_BOTTOM_BANNER',
+  'BROWSE_BANNER',
+  'SEARCH_NATIVE',
+  'MOVIE_DETAILS_BANNER',
+  'SERIES_DETAILS_BANNER',
+  'PLAYER_COMPANION',
+  'FOOTER_BANNER',
+];
 
-  for (const genre of genres) {
-    await prisma.genre.upsert({ where: { slug: genre.slug }, update: {}, create: genre });
+export async function seedDatabase(): Promise<{ moviesSeeded: number; seriesSeeded: number; genresSeeded: number }> {
+  // 1. Seed AdPlacement records idempotently
+  for (const type of AD_PLACEMENTS) {
+    await prisma.adPlacement.upsert({
+      where: { type },
+      update: {},
+      create: {
+        type,
+        displayName: type.replace(/_/g, ' '),
+        active: true,
+      },
+    });
   }
 
-  await prisma.movie.upsert({
-    where: { slug: 'the-lantern-keeper-demo' },
-    update: {},
-    create: {
-      title: 'The Lantern Keeper (Demo)',
-      slug: 'the-lantern-keeper-demo',
-      description: 'A fictional catalog record for local development. No film or distribution rights are represented.',
-      releaseYear: 2025,
-      durationMinutes: 92,
-      language: 'English',
-      subtitlesAvailable: [],
-      state: 'DRAFT',
-      movieGenres: { create: [{ genre: { connect: { slug: 'demo-drama' } } }] },
-      contentRights: {
-        create: {
-          rightsStatus: 'PENDING_VERIFICATION',
-          rightsHolder: 'Fictional development record; no rights asserted',
-          rightsStartDate: new Date(),
-        },
+  // 2. Seed Genres idempotently
+  for (const genre of SEED_GENRES) {
+    await prisma.genre.upsert({
+      where: { slug: genre.slug },
+      update: { name: genre.name, description: genre.description },
+      create: {
+        name: genre.name,
+        slug: genre.slug,
+        description: genre.description,
       },
-    },
-  });
+    });
+  }
 
-  await prisma.series.upsert({
-    where: { slug: 'river-of-stars-demo' },
-    update: {},
-    create: {
-      title: 'River of Stars (Demo)',
-      slug: 'river-of-stars-demo',
-      description: 'A fictional series record for local development. It contains no playable video.',
-      releaseYear: 2026,
-      state: 'DRAFT',
-      seriesGenres: { create: [{ genre: { connect: { slug: 'demo-adventure' } } }] },
-      contentRights: {
-        create: {
-          rightsStatus: 'PENDING_VERIFICATION',
-          rightsHolder: 'Fictional development record; no rights asserted',
-          rightsStartDate: new Date(),
+  // 3. Seed 32 Movies idempotently (do not overwrite existing admin edits except ensuring published demo catalog exists)
+  for (const movie of ALL_SEED_MOVIES) {
+    await prisma.movie.upsert({
+      where: { slug: movie.slug },
+      update: {},
+      create: {
+        title: movie.title,
+        slug: movie.slug,
+        description: movie.description,
+        releaseYear: movie.releaseYear,
+        durationMinutes: movie.durationMinutes,
+        maturityRating: movie.maturityRating,
+        language: movie.language,
+        subtitlesAvailable: movie.subtitlesAvailable,
+        isFeatured: movie.isFeatured,
+        isTrending: movie.isTrending,
+        isRwandanContent: movie.isRwandanContent,
+        isAfricanContent: movie.isAfricanContent,
+        isTop10: movie.isTop10,
+        top10Rank: movie.top10Rank ?? null,
+        viewCount: movie.viewCount,
+        likeCount: movie.likeCount,
+        averageRating: movie.averageRating,
+        state: movie.state,
+        posterUrl: movie.posterUrl,
+        backdropUrl: movie.backdropUrl,
+        trailerUrl: movie.trailerUrl,
+        videoUrl: movie.videoUrl,
+        movieGenres: {
+          create: movie.genres.map(slug => ({
+            genre: { connect: { slug } },
+          })),
+        },
+        contentRights: {
+          create: {
+            rightsStatus: movie.rightsStatus,
+            rightsHolder: movie.rightsHolder,
+            territories: ['GLOBAL', 'RW'],
+            rightsStartDate: new Date(Date.now() - 86400000 * 7),
+          },
         },
       },
-    },
-  });
+    });
+  }
+
+  // 4. Seed 12 Series with Seasons & Episodes idempotently
+  for (const ser of SEED_SERIES) {
+    const upsertedSeries = await prisma.series.upsert({
+      where: { slug: ser.slug },
+      update: {},
+      create: {
+        title: ser.title,
+        slug: ser.slug,
+        description: ser.description,
+        releaseYear: ser.releaseYear,
+        maturityRating: ser.maturityRating,
+        language: ser.language,
+        isFeatured: ser.isFeatured,
+        isTrending: ser.isTrending,
+        isRwandanContent: ser.isRwandanContent,
+        isAfricanContent: ser.isAfricanContent,
+        isTop10: ser.isTop10,
+        top10Rank: ser.top10Rank ?? null,
+        viewCount: ser.viewCount,
+        averageRating: ser.averageRating,
+        state: ser.state,
+        posterUrl: ser.posterUrl,
+        backdropUrl: ser.backdropUrl,
+        trailerUrl: ser.trailerUrl,
+        seriesGenres: {
+          create: ser.genres.map(slug => ({
+            genre: { connect: { slug } },
+          })),
+        },
+        contentRights: {
+          create: {
+            rightsStatus: ser.rightsStatus,
+            rightsHolder: ser.rightsHolder,
+            territories: ['GLOBAL', 'RW'],
+            rightsStartDate: new Date(Date.now() - 86400000 * 7),
+          },
+        },
+      },
+    });
+
+    for (const sea of ser.seasons) {
+      const upsertedSeason = await prisma.season.upsert({
+        where: {
+          seriesId_seasonNumber: {
+            seriesId: upsertedSeries.id,
+            seasonNumber: sea.seasonNumber,
+          },
+        },
+        update: {},
+        create: {
+          seriesId: upsertedSeries.id,
+          seasonNumber: sea.seasonNumber,
+          title: sea.title,
+          description: sea.description,
+        },
+      });
+
+      for (const ep of sea.episodes) {
+        await prisma.episode.upsert({
+          where: {
+            seasonId_episodeNumber: {
+              seasonId: upsertedSeason.id,
+              episodeNumber: ep.episodeNumber,
+            },
+          },
+          update: {},
+          create: {
+            seasonId: upsertedSeason.id,
+            episodeNumber: ep.episodeNumber,
+            title: ep.title,
+            description: ep.description,
+            durationMinutes: ep.durationMinutes,
+            thumbnailUrl: ep.thumbnailUrl,
+            videoUrl: ep.videoUrl,
+            state: ep.state,
+          },
+        });
+      }
+    }
+  }
+
+  // 5. Optional secure initial Admin provisioning via environment variables
+  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const adminInitialPassword = process.env.ADMIN_INITIAL_PASSWORD;
+  if (adminEmail && adminInitialPassword && adminInitialPassword.length >= 10) {
+    const passwordHash = await bcrypt.hash(adminInitialPassword, 12);
+    await prisma.user.upsert({
+      where: { email: adminEmail },
+      update: { role: 'SUPER_ADMIN', emailVerified: true },
+      create: {
+        email: adminEmail,
+        passwordHash,
+        displayName: 'ZIRA Administrator',
+        role: 'SUPER_ADMIN',
+        emailVerified: true,
+      },
+    });
+  }
+
+  return {
+    genresSeeded: SEED_GENRES.length,
+    moviesSeeded: ALL_SEED_MOVIES.length,
+    seriesSeeded: SEED_SERIES.length,
+  };
 }
 
-main()
-  .catch(error => {
-    console.error('Development seed failed:', error);
-    process.exitCode = 1;
-  })
-  .finally(async () => prisma.$disconnect());
+const isDirectExecution = process.argv[1]?.includes('seed');
+if (isDirectExecution) {
+  seedDatabase()
+    .then(summary => {
+      console.log(`ZIRA catalog seeded: ${summary.moviesSeeded} movies, ${summary.seriesSeeded} series, ${summary.genresSeeded} genres.`);
+    })
+    .catch(error => {
+      console.error('Database seed failed:', error);
+      process.exitCode = 1;
+    })
+    .finally(async () => prisma.$disconnect());
+}

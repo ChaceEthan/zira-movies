@@ -189,3 +189,49 @@ test('uploads are explicitly disabled when R2 credentials are absent', async () 
   const body = await response.json() as { error: string };
   assert.match(body.error, /not configured/i);
 });
+
+test('public catalog endpoints return 32 published movies and 12 published series without authentication', async () => {
+  const [moviesRes, seriesRes] = await Promise.all([
+    fetch(`${baseUrl}/api/movies`),
+    fetch(`${baseUrl}/api/series`),
+  ]);
+  assert.equal(moviesRes.status, 200);
+  assert.equal(seriesRes.status, 200);
+  const moviesData = await moviesRes.json() as { movies: unknown[] };
+  const seriesData = await seriesRes.json() as { series: unknown[] };
+  assert.equal(moviesData.movies.length, 32);
+  assert.equal(seriesData.series.length, 12);
+});
+
+test('initial administrator bootstrap creates SUPER_ADMIN once and blocks subsequent unauthenticated bootstrap attempts', async () => {
+  const statusBefore = await (await fetch(`${baseUrl}/api/auth/admin-status`)).json() as {
+    hasAdmin: boolean;
+    bootstrapAvailable: boolean;
+  };
+  assert.equal(statusBefore.bootstrapAvailable, true);
+
+  const bootRes = await fetch(`${baseUrl}/api/auth/bootstrap-admin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: 'owner@zira.com',
+      displayName: 'ZIRA Owner',
+      password: 'StrongOwnerPassword2026!',
+    }),
+  });
+  assert.equal(bootRes.status, 201);
+  const bootData = await bootRes.json() as { user: { role: string }; token: string };
+  assert.equal(bootData.user.role, 'SUPER_ADMIN');
+  assert.ok(bootData.token);
+
+  const secondBootRes = await fetch(`${baseUrl}/api/auth/bootstrap-admin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: 'intruder@zira.com',
+      displayName: 'Intruder',
+      password: 'IntruderPassword2026!',
+    }),
+  });
+  assert.equal(secondBootRes.status, 403);
+});
